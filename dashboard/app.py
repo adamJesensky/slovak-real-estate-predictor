@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import pydeck as pdk
 import sys
 import unicodedata
+from streamlit_searchbox import st_searchbox
 
 # --- Configuration ---
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -587,6 +588,27 @@ category = st.radio("Segment", ["byty", "domy"], horizontal=True, label_visibili
 with st.spinner("Na\u010d\u00edtavam modely... Pros\u00edm \u010dakajte."):
     mappings, features, models = load_resources(category)
 
+# --- Location Search (outside form — needs dynamic filtering) ---
+all_locations = sorted(mappings['locations'].keys())
+
+def search_location(query: str) -> list[str]:
+    if not query.strip():
+        return all_locations
+    q = strip_diacritics(query).lower()
+    return [loc for loc in all_locations if q in strip_diacritics(loc).lower()]
+
+location = st_searchbox(
+    search_location,
+    placeholder="Hľadať obec... (napr. Cadca, Zilina)",
+    label="Obec / mestská časť",
+    default=all_locations[0] if all_locations else None,
+    default_options=all_locations[:20],
+    key="loc_searchbox",
+    rerun_scope="fragment" if hasattr(st, 'fragment') else "app",
+)
+if location is None or location not in mappings['locations']:
+    location = all_locations[0] if all_locations else ""
+
 
 # ============================================================
 # SECTION 1: INPUT FORM \u2014 2x2 Glass Cards
@@ -628,24 +650,10 @@ with st.form("input_form"):
                 built_up_area = st.number_input("Zastavan\u00e1 plocha (m\u00b2)", min_value=0, max_value=500, value=100)
                 has_lift = False
 
-    # --- Card 2: Lokalita + Ostatn\u00e9 ---
+    # --- Card 2: Ostatn\u00e9 ---
     with row1_col2:
         with st.container(border=True):
-            st.markdown('<p class="card-label">Lokalita</p>', unsafe_allow_html=True)
-            all_locations = sorted(mappings['locations'].keys())
-            loc_search = st.text_input("Hľadať obec...", value="", key="loc_search",
-                                        placeholder="napr. Cadca, Zilina, Presov",
-                                        help="Funguje aj bez diakritiky.")
-            if loc_search.strip():
-                loc_query = strip_diacritics(loc_search).lower()
-                filtered_locs = [l for l in all_locations if loc_query in strip_diacritics(l).lower()]
-            else:
-                filtered_locs = all_locations
-            if not filtered_locs:
-                st.caption("Žiadne výsledky")
-                filtered_locs = all_locations
-            location = st.selectbox("Obec / mestská časť", filtered_locs)
-
+            st.markdown('<p class="card-label">Ostatn\u00e9</p>', unsafe_allow_html=True)
             vlastnictvo = st.selectbox("Vlastn\u00edctvo", ['Osobn\u00e9', 'Firemn\u00e9'])
             heat_options = [h for h in mappings['options']['heating'] if h != 'unknown']
             heating = st.selectbox("K\u00farenie", heat_options)

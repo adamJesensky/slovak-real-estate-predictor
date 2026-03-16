@@ -15,3 +15,4 @@ matplotlib>=3.7.0
 pydeck>=0.8.0
 joblib==1.4.2
 python-dotenv>=1.0.0
+streamlit-searchbox>=0.1.20
