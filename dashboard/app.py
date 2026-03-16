@@ -604,7 +604,6 @@ location = st_searchbox(
     default=all_locations[0] if all_locations else None,
     default_options=all_locations[:20],
     key="loc_searchbox",
-    rerun_scope="fragment" if hasattr(st, 'fragment') else "app",
 )
 if location is None or location not in mappings['locations']:
     location = all_locations[0] if all_locations else ""
