@@ -829,19 +829,13 @@ if st.session_state.prediction_done and st.session_state.input_data:
         st.markdown("#### Porovnanie lokal\u00edt")
 
         all_locations = sorted(mappings['locations'].keys())
-        whatif_search = st.text_input("Hľadať lokalitu...", value="", key="whatif_search",
-                                       help="Funguje aj bez diakritiky (napr. 'Presov').")
-        if whatif_search.strip():
-            whatif_query = strip_diacritics(whatif_search).lower()
-            whatif_options = [loc for loc in all_locations
-                             if loc != input_data['obec_cast'] and whatif_query in strip_diacritics(loc).lower()]
-        else:
-            whatif_options = [loc for loc in all_locations if loc != input_data['obec_cast']]
+        whatif_options = [loc for loc in all_locations if loc != input_data['obec_cast']]
         target_locs = st.multiselect(
-            "Porovnajte cenu v iných lokalitách (max. 3):",
+            "Porovnať cenu v iných lokalitách (max 3):",
             whatif_options,
             max_selections=3,
-            key="whatif_locations"
+            key="whatif_locations",
+            help="Začnite písať názov obce pre vyhľadanie."
         )
 
         if target_locs:
@@ -983,15 +977,29 @@ if st.session_state.prediction_done and st.session_state.input_data:
     }
 
 # ========================================================
-# FOOTER
+# FEEDBACK + FOOTER
 # ========================================================
+with st.expander("Spätná väzba"):
+    feedback_type = st.selectbox("Typ:", ["Návrh na zlepšenie", "Chyba / bug", "Nepresný odhad", "Iné"], key="fb_type")
+    feedback_text = st.text_area("Vaša správa:", height=120, key="fb_text",
+                                  placeholder="Opíšte váš návrh alebo problém...")
+    if st.button("Odoslať spätnú väzbu", type="primary", key="fb_submit"):
+        if feedback_text.strip():
+            import urllib.parse
+            subject = urllib.parse.quote(f"Feedback: {feedback_type}")
+            body = urllib.parse.quote(feedback_text)
+            mailto = f"mailto:ajesensky8@gmail.com?subject={subject}&body={body}"
+            st.markdown(f'<a href="{mailto}" target="_blank" style="'
+                        f'display:inline-block;padding:8px 20px;background:var(--accent,#007AFF);'
+                        f'color:white;border-radius:8px;text-decoration:none;font-weight:500;'
+                        f'">Otvoriť emailový klient</a>', unsafe_allow_html=True)
+            st.success("Kliknite na tlačidlo vyššie pre odoslanie cez váš emailový klient.")
+        else:
+            st.warning("Prosím, napíšte správu.")
+
 st.markdown("""
 <div class="app-footer">
-    <strong>Proof of Concept</strong> \u00b7 Experiment\u00e1lny n\u00e1stroj na odhad cien nehnute\u013enost\u00ed<br>
-    Model tr\u00e9novan\u00fd na 10 000+ inzer\u00e1toch z nehnutelnosti.sk \u00b7 XGBoost + LightGBM + CatBoost + NN \u2192 Ensemble<br>
-    Presnos\u0165: MAPE 13.1% (byty), 26.9% (domy) \u00b7 Odhad sl\u00fa\u017ei ako orient\u00e1cia, nie ako znaleck\u00fd posudok<br><br>
+    <strong>Proof of Concept</strong> \u00b7 Odhad sl\u00fa\u017ei ako orient\u00e1cia, nie ako znaleck\u00fd posudok<br><br>
     <a href="https://github.com/adamJesensky/slovak-real-estate-predictor/issues">Nahl\u00e1si\u0165 chybu</a>
-    &nbsp;\u00b7&nbsp;
-    <a href="mailto:ajesensky8@gmail.com">Sp\u00e4tn\u00e1 v\u00e4zba</a>
 </div>
 """, unsafe_allow_html=True)
