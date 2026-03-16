@@ -620,20 +620,10 @@ with st.form("input_form"):
         with st.container(border=True):
             st.markdown('<p class="card-label">Lokalita</p>', unsafe_allow_html=True)
             all_locations = sorted(mappings['locations'].keys())
-            loc_search = st.text_input("H\u013eada\u0165 obec...", value="", key="loc_search",
-                                        help="Zadajte n\u00e1zov obce \u2014 funguje aj bez diakritiky (napr. 'Zilina').")
-            if loc_search.strip():
-                query_norm = strip_diacritics(loc_search).lower()
-                filtered_locs = [loc for loc in all_locations
-                                 if query_norm in strip_diacritics(loc).lower()]
-            else:
-                filtered_locs = all_locations
-
-            if filtered_locs:
-                location = st.selectbox("Vyberte obec", filtered_locs, label_visibility="collapsed")
-            else:
-                st.warning("\u017diadne v\u00fdsledky")
-                location = all_locations[0]
+            location = st.selectbox(
+                "Obec / mestská časť", all_locations,
+                help="Začnite písať pre filtrovanie."
+            )
 
             vlastnictvo = st.selectbox("Vlastn\u00edctvo",
                 ['Osobn\u00e9', 'Dru\u017estevn\u00e9', 'Firemn\u00e9', 'Obecn\u00e9', '\u0160t\u00e1tne', 'In\u00e9', 'Nevysporiadan\u00e9', 'Unknown'])
@@ -778,6 +768,7 @@ if st.session_state.prediction_done and st.session_state.input_data:
     # SECTION 3: MAP + SHAP
     # ========================================================
 
+    st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
     map_col, shap_col = st.columns([1, 1])
 
     with map_col:
@@ -791,7 +782,7 @@ if st.session_state.prediction_done and st.session_state.input_data:
                 'area': [input_data['floor_size']]
             })
             st.pydeck_chart(pdk.Deck(
-                map_style=MAP_STYLES["Dark"],
+                map_style=MAP_STYLES["Light"],
                 initial_view_state=pdk.ViewState(
                     latitude=loc_viz['lat'], longitude=loc_viz['lon'],
                     zoom=13, pitch=45),
@@ -838,9 +829,17 @@ if st.session_state.prediction_done and st.session_state.input_data:
         st.markdown("#### Porovnanie lokal\u00edt")
 
         all_locations = sorted(mappings['locations'].keys())
+        whatif_search = st.text_input("Hľadať lokalitu...", value="", key="whatif_search",
+                                       help="Funguje aj bez diakritiky (napr. 'Presov').")
+        if whatif_search.strip():
+            whatif_query = strip_diacritics(whatif_search).lower()
+            whatif_options = [loc for loc in all_locations
+                             if loc != input_data['obec_cast'] and whatif_query in strip_diacritics(loc).lower()]
+        else:
+            whatif_options = [loc for loc in all_locations if loc != input_data['obec_cast']]
         target_locs = st.multiselect(
-            "Porovnajte cenu v in\u00fdch lokalit\u00e1ch (max. 3):",
-            [loc for loc in all_locations if loc != input_data['obec_cast']],
+            "Porovnajte cenu v iných lokalitách (max. 3):",
+            whatif_options,
             max_selections=3,
             key="whatif_locations"
         )
@@ -905,7 +904,7 @@ if st.session_state.prediction_done and st.session_state.input_data:
             max_range = max(lat_range, lon_range, 0.01)
             zoom = max(5, min(13, 8 - np.log2(max_range + 0.001)))
             st.pydeck_chart(pdk.Deck(
-                map_style=MAP_STYLES["Dark"],
+                map_style=MAP_STYLES["Light"],
                 initial_view_state=pdk.ViewState(latitude=avg_lat, longitude=avg_lon, zoom=zoom, pitch=30),
                 layers=[pdk.Layer("ScatterplotLayer", data=pins_df,
                     get_position='[lon, lat]', get_color='color',
