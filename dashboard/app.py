@@ -861,11 +861,17 @@ if st.session_state.prediction_done and st.session_state.input_data:
                                        placeholder="napr. Cadca, Zilina, Presov",
                                        help="Funguje aj bez diakritiky. Vybrané lokality zostanú zachované.")
         whatif_all = [loc for loc in all_locations if loc != input_data['obec_cast']]
+        # Keep already-selected items in options so they don't disappear on search change
+        already_selected = st.session_state.get("whatif_locations", [])
         if whatif_search.strip():
             whatif_query = strip_diacritics(whatif_search).lower()
             whatif_filtered = [loc for loc in whatif_all if whatif_query in strip_diacritics(loc).lower()]
         else:
             whatif_filtered = whatif_all
+        # Prepend selected items that aren't in filtered results
+        for loc in already_selected:
+            if loc in whatif_all and loc not in whatif_filtered:
+                whatif_filtered.insert(0, loc)
         target_locs = st.multiselect(
             "Porovnať cenu v iných lokalitách (max 3):",
             whatif_filtered,
