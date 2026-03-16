@@ -1,0 +1,36 @@
+# ===================================
+# Public deployment repo — dashboard only
+# ===================================
+
+# Everything excluded by default
+*
+
+# Whitelist: only include what the dashboard needs
+!.gitignore
+!.streamlit/
+!.streamlit/config.toml
+!dashboard/
+!dashboard/**
+!models/
+!models/*.joblib
+!models/*.cbm
+!models/*.pth
+!config.py
+!requirements.txt
+!requirements-dev.txt
+!packages.txt
+!runtime.txt
+!README.md
+
+# Re-exclude legacy model files
+models/best_model_*.pkl
+models/best_params_*.txt
+
+# Re-exclude Python cache inside whitelisted dirs
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment
+.env
+.streamlit/secrets.toml
