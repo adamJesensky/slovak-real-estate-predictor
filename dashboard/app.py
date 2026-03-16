@@ -101,47 +101,47 @@ def predict_ensemble(X_input, models):
     return final_price, (pred_xgb, pred_lgb, pred_cb, pred_nn)
 
 FEATURE_LABELS = {
-    'location_score_m2': 'Lokalita (cena/m\u00b2)',
+    'location_score_m2': 'Lokalita (cena/m²)',
     'floor_size': 'Plocha',
     'log_area': 'Plocha',
-    'condition_score': 'Stav nehnute\u013enosti',
-    'dist_bratislava': 'Vzdialenos\u0165 od Bratislavy',
-    'dist_nearest_city': 'Vzdialenos\u0165 od krajsk\u00e9ho mesta',
-    'room_count': 'Po\u010det izieb',
-    'has_lift': 'V\u00fd\u0165ah',
-    'relative_floor': 'Relat\u00edvne poschodie',
-    'utilities_score': 'In\u017e. siete (N/A)',
-    'has_balcony': 'Balk\u00f3n',
+    'condition_score': 'Stav nehnuteľnosti',
+    'dist_bratislava': 'Vzdialenosť od Bratislavy',
+    'dist_nearest_city': 'Vzdialenosť od krajského mesta',
+    'room_count': 'Počet izieb',
+    'has_lift': 'Výťah',
+    'relative_floor': 'Relatívne poschodie',
+    'utilities_score': 'Inž. siete (N/A)',
+    'has_balcony': 'Balkón',
     'has_loggia': 'Loggia',
     'has_cellar': 'Pivnica',
-    'has_garage': 'Gar\u00e1\u017e',
+    'has_garage': 'Garáž',
     'has_parking': 'Parkovanie',
     'has_terrace': 'Terasa',
     'land_area': 'Plocha pozemku',
     'log_land_area': 'Plocha pozemku',
-    'built_up_area': 'Zastavan\u00e1 plocha',
+    'built_up_area': 'Zastavaná plocha',
     'built_up_ratio': 'Pomer zastavanej plochy',
-    'avg_room_size': 'Priemern\u00e1 ve\u013ekos\u0165 izby',
+    'avg_room_size': 'Priemerná veľkosť izby',
     'current_floor': 'Poschodie',
-    'total_floors': 'Po\u010det poschod\u00ed',
-    'no_lift_high_floor': 'Vysok\u00e9 poschodie bez v\u00fd\u0165ahu',
-    'is_ground_floor': 'Pr\u00edzemie',
-    'is_top_floor': 'Posledn\u00e9 poschodie',
-    'balkon': 'Balk\u00f3n (po\u010det)',
-    'loggia': 'Loggia (po\u010det)',
-    'podlazie': 'Podla\u017eie',
+    'total_floors': 'Počet poschodí',
+    'no_lift_high_floor': 'Vysoké poschodie bez výťahu',
+    'is_ground_floor': 'Prízemie',
+    'is_top_floor': 'Posledné poschodie',
+    'balkon': 'Balkón (počet)',
+    'loggia': 'Loggia (počet)',
+    'podlazie': 'Podlažie',
     'days_on_market': 'Dni na trhu',
     'has_gas': 'Plyn',
     'has_water': 'Voda',
     'has_electricity': 'Elektrina',
-    'has_sewerage': 'Kanaliz\u00e1cia',
-    'has_pantry': '\u0160pajza',
+    'has_sewerage': 'Kanalizácia',
+    'has_pantry': 'Špajza',
     'has_warehouse': 'Sklad',
-    'has_ac': 'Klimatiz\u00e1cia',
-    'month_sin': 'Sez\u00f3nnos\u0165',
-    'month_cos': 'Sez\u00f3nnos\u0165',
-    'year_added': 'Rok inzer\u00e1tu',
-    'month_added': 'Mesiac inzer\u00e1tu',
+    'has_ac': 'Klimatizácia',
+    'month_sin': 'Sezónnosť',
+    'month_cos': 'Sezónnosť',
+    'year_added': 'Rok inzerátu',
+    'month_added': 'Mesiac inzerátu',
 }
 
 def shap_to_eur(shap_value, final_price):
@@ -151,33 +151,33 @@ def shap_to_eur(shap_value, final_price):
 def _format_feature_value(fname, raw_value):
     """Format a feature's raw value for display next to SHAP explanation."""
     if fname in ('location_score_m2',):
-        return f"{raw_value:,.0f} \u20ac/m\u00b2"
+        return f"{raw_value:,.0f} €/m²"
     if fname in ('floor_size', 'land_area', 'built_up_area'):
-        return f"{raw_value:,.0f} m\u00b2"
+        return f"{raw_value:,.0f} m²"
     if fname in ('log_area', 'log_land_area'):
-        return f"{np.expm1(raw_value):,.0f} m\u00b2"
+        return f"{np.expm1(raw_value):,.0f} m²"
     if fname in ('dist_bratislava', 'dist_nearest_city'):
         return f"{raw_value:,.0f} km"
     if fname in ('room_count', 'current_floor', 'total_floors', 'balkon', 'loggia', 'podlazie'):
         return f"{int(raw_value)}"
     if fname == 'condition_score':
-        score_labels = {0: 'In\u00fd', 1: 'P\u00f4vodn\u00fd', 2: '\u010ciasto\u010dn\u00e1 rek.', 3: 'Kompletn\u00e1 rek.', 4: 'Novostavba'}
+        score_labels = {0: 'Iný', 1: 'Pôvodný', 2: 'Čiastočná rek.', 3: 'Kompletná rek.', 4: 'Novostavba'}
         return score_labels.get(int(raw_value), str(int(raw_value)))
     if fname == 'relative_floor':
         return f"{raw_value:.0%}"
     if fname == 'avg_room_size':
-        return f"{raw_value:,.0f} m\u00b2"
+        return f"{raw_value:,.0f} m²"
     if fname in ('days_on_market',):
-        return f"{int(raw_value)} dn\u00ed"
+        return f"{int(raw_value)} dní"
     if fname == 'built_up_ratio':
         return f"{raw_value:.0%}"
     # Binary features
     if fname.startswith('has_') or fname in ('is_ground_floor', 'is_top_floor', 'no_lift_high_floor'):
-        return "\u00e1no" if raw_value >= 0.5 else "nie"
+        return "áno" if raw_value >= 0.5 else "nie"
     # One-hot encoded categories — extract the category name
     for prefix in ('stav_final_', 'construction_type_mapped_', 'heating_type_', 'vlastnictvo_'):
         if fname.startswith(prefix):
-            return "\u00e1no" if raw_value >= 0.5 else "nie"
+            return "áno" if raw_value >= 0.5 else "nie"
     return None
 
 def get_plain_language_shap(shap_values_row, final_price, X_input=None, top_n=5):
@@ -231,8 +231,20 @@ MAP_STYLES = {
     "Light": "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
 }
 
+# --- Slovak UI Labels for Dropdowns ---
+CONSTRUCTION_LABELS = {
+    'Brick': 'Tehla', 'Block': 'Blok / tvárnice', 'Mixed': 'Zmiešaná',
+    'Other': 'Iná', 'Panel': 'Panel', 'ReinforcedConcrete': 'Železobetón',
+    'Stone': 'Kameň', 'Wood': 'Drevo', 'Skeleton': 'Skelet',
+    'Prefab': 'Prefabrikát', 'Unknown': 'Neznáma',
+}
+HEATING_LABELS = {
+    'central': 'Ústredné', 'local': 'Lokálne', 'other': 'Iné',
+    'underfloor': 'Podlahové', 'unknown': 'Neznáme',
+}
+
 def strip_diacritics(text):
-    """Remove diacritics: '\u017dilina' -> 'Zilina', 'Pre\u0161ov' -> 'Presov'."""
+    """Remove diacritics: 'Žilina' -> 'Zilina', 'Prešov' -> 'Presov'."""
     nfkd = unicodedata.normalize('NFKD', text)
     return ''.join(c for c in nfkd if not unicodedata.category(c).startswith('M'))
 
@@ -251,9 +263,9 @@ def process_input(data, mappings, feature_cols, category):
     df['lon'] = loc_stats['lon']
 
     cond_map = {
-        'Novostavba': 4, 'Developersk\u00fd projekt': 4, 'Kompletn\u00e1 rekon\u0161trukcia': 3,
-        '\u010ciasto\u010dn\u00e1 rekon\u0161trukcia': 2, 'P\u00f4vodn\u00fd stav': 1, 'Vo v\u00fdstavbe': 4,
-        'Ur\u010den\u00fd k demol\u00e1cii': 0, 'undefined': 0,
+        'Novostavba': 4, 'Developerský projekt': 4, 'Kompletná rekonštrukcia': 3,
+        'Čiastočná rekonštrukcia': 2, 'Pôvodný stav': 1, 'Vo výstavbe': 4,
+        'Určený k demolácii': 0, 'undefined': 0,
     }
     df['condition_score'] = cond_map.get(data['stav_final'], 0)
 
@@ -344,11 +356,11 @@ def process_input(data, mappings, feature_cols, category):
 # ============================================================
 
 st.set_page_config(
-    page_title="Odhad ceny nehnute\u013enosti | Slovensko",
+    page_title="Odhad ceny nehnuteľnosti | Slovensko",
     layout="wide",
     page_icon=None,
     menu_items={
-        'About': 'Odhad ceny bytov a domov na Slovensku pomocou strojov\u00e9ho u\u010denia.'
+        'About': 'Odhad ceny bytov a domov na Slovensku pomocou strojového učenia.'
     }
 )
 
@@ -560,8 +572,8 @@ div[data-testid="stRadio"] > label { display: none !important; }
 """, unsafe_allow_html=True)
 
 # --- Header ---
-st.title("Predikcia Ceny Nehnute\u013enost\u00ed")
-st.markdown('<p class="subtitle">Ensemble ML model \u00b7 10 000+ nehnute\u013enost\u00ed</p>', unsafe_allow_html=True)
+st.title("Predikcia Ceny Nehnuteľností")
+st.markdown('<p class="subtitle">Ensemble ML model · 10 000+ nehnuteľností</p>', unsafe_allow_html=True)
 
 # --- Session State ---
 if 'prediction_done' not in st.session_state:
@@ -572,20 +584,21 @@ if 'input_data' not in st.session_state:
 # --- Help Section ---
 with st.expander("Ako to funguje?"):
     st.markdown("""
-**Tento n\u00e1stroj odhaduje trhov\u00fa cenu nehnute\u013enosti** na z\u00e1klade podobn\u00fdch inzer\u00e1tov z nehnutelnosti.sk.
+**Tento nástroj odhaduje trhovú cenu nehnuteľnosti** na základe podobných inzerátov z nehnutelnosti.sk.
 
-- **Interval neistoty** \u2014 rozsah, v ktorom sa re\u00e1lna cena pravdepodobne nach\u00e1dza
-- **Zhoda modelov** \u2014 nako\u013eko sa 4 nez\u00e1visl\u00e9 modely zhoduj\u00fa (vy\u0161\u0161ia zhoda = spo\u013eahliv\u0161\u00ed odhad)
-- **SHAP anal\u00fdza** \u2014 vysvet\u013euje, ktor\u00e9 faktory cenu najviac ovplyv\u0148uj\u00fa a o ko\u013eko EUR
+- **Interval neistoty** — rozsah, v ktorom sa reálna cena pravdepodobne nachádza
+- **Zhoda modelov** — nakoľko sa 4 nezávislé modely zhodujú (vyššia zhoda = spoľahlivší odhad)
+- **SHAP analýza** — vysvetľuje, ktoré faktory cenu najviac ovplyvňujú a o koľko EUR
 
-*Odhad sl\u00fa\u017ei ako orient\u00e1cia, nie ako znaleck\u00fd posudok.*
+*Odhad slúži ako orientácia, nie ako znalecký posudok.*
 """)
 
 # --- Segment Toggle (outside form) ---
-category = st.radio("Segment", ["byty", "domy"], horizontal=True, label_visibility="collapsed")
+_cat_label = st.radio("Segment", ["Byty", "Domy"], horizontal=True, label_visibility="collapsed")
+category = _cat_label.lower()
 
 # --- Load Models ---
-with st.spinner("Na\u010d\u00edtavam modely... Pros\u00edm \u010dakajte."):
+with st.spinner("Načítavam modely... Prosím čakajte."):
     mappings, features, models = load_resources(category)
 
 # --- Location Search (outside form — needs dynamic filtering) ---
@@ -603,29 +616,29 @@ location = st_searchbox(
     label="Obec / mestská časť",
     default=all_locations[0] if all_locations else None,
     default_options=all_locations[:20],
-    key="loc_searchbox",
+    key=f"loc_searchbox_{category}",
 )
 if location is None or location not in mappings['locations']:
     location = all_locations[0] if all_locations else ""
 
 
 # ============================================================
-# SECTION 1: INPUT FORM \u2014 2x2 Glass Cards
+# SECTION 1: INPUT FORM — 2-column layout
 # ============================================================
 
 with st.form("input_form"):
-    row1_col1, row1_col2 = st.columns(2)
+    form_left, form_right = st.columns(2)
 
-    # --- Card 1: Nehnute\u013enos\u0165 ---
-    with row1_col1:
+    # --- Card 1: Nehnuteľnosť ---
+    with form_left:
         with st.container(border=True):
-            st.markdown('<p class="card-label">Nehnute\u013enos\u0165</p>', unsafe_allow_html=True)
+            st.markdown('<p class="card-label">Nehnuteľnosť</p>', unsafe_allow_html=True)
             floor_size = st.number_input(
-                "Plocha (m\u00b2)", min_value=10, max_value=500, value=60,
-                help="\u00da\u017eitkov\u00e1 plocha nehnute\u013enosti."
+                "Plocha (m²)", min_value=10, max_value=500, value=60,
+                help="Úžitková plocha nehnuteľnosti."
             )
             room_count = st.number_input(
-                "Po\u010det izieb", min_value=1, max_value=10, value=2,
+                "Počet izieb", min_value=1, max_value=10, value=2,
             )
             _hidden_stav = {'undefined', 'Určený k demolácii', 'Developerský projekt'}
             stav_options = [s for s in mappings['options']['stav_final'] if s not in _hidden_stav]
@@ -635,56 +648,66 @@ with st.form("input_form"):
             _hide_constr_domy = {'Panel', 'ReinforcedConcrete'}
             _hide = _hide_constr_always | (_hide_constr_byty if category == 'byty' else _hide_constr_domy)
             constr_options = [c for c in mappings['options']['construction'] if c not in _hide]
-            construction = st.selectbox("Kon\u0161trukcia", constr_options)
+            constr_labels = [CONSTRUCTION_LABELS.get(c, c) for c in constr_options]
+            _constr_label = st.selectbox("Konštrukcia", constr_labels)
+            construction = constr_options[constr_labels.index(_constr_label)]
             if category == 'byty':
                 current_floor = st.number_input("Poschodie", min_value=0, max_value=30, value=2)
-                total_floors = st.number_input("Po\u010det poschod\u00ed v budove", min_value=1, max_value=30, value=5)
-                has_lift = st.toggle("V\u00fd\u0165ah", value=False)
+                total_floors = st.number_input("Počet poschodí v budove", min_value=1, max_value=30, value=5)
+                has_lift = st.toggle("Výťah", value=False)
                 land_area = 0
                 built_up_area = 0
             else:
                 current_floor = 0
-                total_floors = st.number_input("Po\u010det podla\u017e\u00ed", min_value=1, max_value=5, value=1)
-                land_area = st.number_input("Plocha pozemku (m\u00b2)", min_value=0, max_value=5000, value=400)
-                built_up_area = st.number_input("Zastavan\u00e1 plocha (m\u00b2)", min_value=0, max_value=500, value=100)
+                total_floors = st.number_input("Počet podlaží", min_value=1, max_value=5, value=1)
+                land_area = st.number_input("Plocha pozemku (m²)", min_value=0, max_value=5000, value=400,
+                                            help="Celková plocha pozemku.")
+                built_up_area = st.number_input("Zastavaná plocha (m²)", min_value=0, max_value=500, value=100,
+                                                help="Plocha, ktorú zaberá samotná stavba na pozemku.")
                 has_lift = False
 
-    # --- Card 2: Ostatn\u00e9 ---
-    with row1_col2:
+    # --- Right Column: Ostatné + Vybavenie + Porovnanie ---
+    with form_right:
         with st.container(border=True):
-            st.markdown('<p class="card-label">Ostatn\u00e9</p>', unsafe_allow_html=True)
-            vlastnictvo = st.selectbox("Vlastn\u00edctvo", ['Osobn\u00e9', 'Firemn\u00e9'])
+            st.markdown('<p class="card-label">Ostatné</p>', unsafe_allow_html=True)
+            vlastnictvo = st.selectbox("Vlastníctvo", ['Osobné', 'Firemné'])
             heat_options = [h for h in mappings['options']['heating'] if h != 'unknown']
-            heating = st.selectbox("K\u00farenie", heat_options)
+            heat_labels = [HEATING_LABELS.get(h, h) for h in heat_options]
+            _heat_label = st.selectbox("Kúrenie", heat_labels)
+            heating = heat_options[heat_labels.index(_heat_label)]
 
-    row2_col1, row2_col2 = st.columns(2)
-
-    # --- Card 3: Vybavenie ---
-    with row2_col1:
         with st.container(border=True):
             st.markdown('<p class="card-label">Vybavenie</p>', unsafe_allow_html=True)
             vybavenie_cols = st.columns(2)
             with vybavenie_cols[0]:
-                has_balcony = st.toggle("Balk\u00f3n", value=False)
+                has_balcony = st.toggle("Balkón", value=False)
                 has_loggia = st.toggle("Loggia", value=False)
                 has_cellar = st.toggle("Pivnica", value=False)
             with vybavenie_cols[1]:
-                has_garage = st.toggle("Gar\u00e1\u017e", value=False)
+                has_garage = st.toggle("Garáž", value=False)
                 has_parking = st.toggle("Parkovanie", value=False)
                 has_terrace = st.toggle("Terasa", value=False)
 
-    # --- Card 4: Porovnanie s inzer\u00e1tom ---
-    with row2_col2:
         with st.container(border=True):
-            st.markdown('<p class="card-label">Porovnanie s inzer\u00e1tom</p>', unsafe_allow_html=True)
+            st.markdown('<p class="card-label">Porovnanie s inzerátom</p>', unsafe_allow_html=True)
             market_price = st.number_input(
-                "Inzerovan\u00e1 cena (\u20ac)", min_value=0, value=0,
-                help="Volite\u013en\u00e9 \u2014 zadajte cenu z inzer\u00e1tu pre porovnanie s odhadom."
+                "Inzerovaná cena (€)", min_value=0, value=0,
+                help="Voliteľné — zadajte cenu z inzerátu pre porovnanie s odhadom."
             )
 
-    submitted = st.form_submit_button("Odhadn\u00fa\u0165 cenu", type="primary")
+    submitted = st.form_submit_button("Odhadnúť cenu", type="primary")
 
+_valid = True
 if submitted:
+    # Edge case validations
+    if category == 'byty' and current_floor > total_floors:
+        st.warning("Poschodie nemôže byť vyššie ako počet poschodí v budove.")
+        _valid = False
+    if category == 'domy' and built_up_area > land_area > 0:
+        st.warning("Zastavaná plocha nemôže byť väčšia ako plocha pozemku.")
+        _valid = False
+
+if submitted and _valid:
     st.session_state.prediction_done = True
     st.session_state.input_data = {
         'floor_size': floor_size,
@@ -729,7 +752,7 @@ if st.session_state.prediction_done and st.session_state.input_data:
 
     # SHAP (computed once, reused across sections — always on)
     shap_values = None
-    with st.spinner("Po\u010d\u00edtam vysvetlenie modelu..."):
+    with st.spinner("Počítam vysvetlenie modelu..."):
         explainer = get_shap_explainer(models['xgb'], f'xgb_{category}')
         shap_values = explainer(X_input)
 
@@ -737,22 +760,22 @@ if st.session_state.prediction_done and st.session_state.input_data:
     # SECTION 2: HERO PRICE
     # ========================================================
 
-    st.markdown(f'<div class="hero-price">{final_price:,.0f} \u20ac</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="hero-price">{final_price:,.0f} €</div>', unsafe_allow_html=True)
 
     # Verdict badge (only if market price provided)
     if market_price > 0:
         diff = market_price - final_price
         diff_pct = (diff / final_price) * 100
         if abs(diff_pct) < 5:
-            badge_class, badge_text = "verdict-fair", f"F\u00e9rov\u00e1 cena ({diff_pct:+.1f}%)"
+            badge_class, badge_text = "verdict-fair", f"Férová cena ({diff_pct:+.1f}%)"
         elif diff_pct > 20:
-            badge_class, badge_text = "verdict-over", f"V\u00fdrazne nadhodnoten\u00e1 (+{diff_pct:.1f}%)"
+            badge_class, badge_text = "verdict-over", f"Výrazne nadhodnotená (+{diff_pct:.1f}%)"
         elif diff_pct > 5:
-            badge_class, badge_text = "verdict-slight-over", f"Mierne nadhodnoten\u00e1 (+{diff_pct:.1f}%)"
+            badge_class, badge_text = "verdict-slight-over", f"Mierne nadhodnotená (+{diff_pct:.1f}%)"
         elif diff_pct < -20:
-            badge_class, badge_text = "verdict-under", f"V\u00fdrazne podhodnoten\u00e1 ({diff_pct:.1f}%)"
+            badge_class, badge_text = "verdict-under", f"Výrazne podhodnotená ({diff_pct:.1f}%)"
         else:
-            badge_class, badge_text = "verdict-good", f"V\u00fdhodn\u00e1 k\u00fapa ({diff_pct:.1f}%)"
+            badge_class, badge_text = "verdict-good", f"Výhodná kúpa ({diff_pct:.1f}%)"
         st.markdown(
             f'<div style="text-align:center"><span class="verdict-badge {badge_class}">{badge_text}</span></div>',
             unsafe_allow_html=True
@@ -763,30 +786,30 @@ if st.session_state.prediction_done and st.session_state.input_data:
     loc_stats_hero = mappings['locations'].get(input_data['obec_cast'], {'location_score_m2': 0})
     loc_avg_m2 = loc_stats_hero['location_score_m2']
     st.markdown(
-        f'<p class="hero-subtitle">{price_per_m2:,.0f} \u20ac/m\u00b2 \u00b7 priemer lokality {loc_avg_m2:,.0f} \u20ac/m\u00b2</p>',
+        f'<p class="hero-subtitle">{price_per_m2:,.0f} €/m² · priemer lokality {loc_avg_m2:,.0f} €/m²</p>',
         unsafe_allow_html=True
     )
 
-    # --- Three stat cards: Interval | \u20ac/m\u00b2 | Zhoda ---
+    # --- Three stat cards: Interval | €/m² | Zhoda ---
     s1, s2, s3 = st.columns(3)
     with s1:
         st.markdown(f"""<div class="stat-card">
             <div class="stat-label">Interval neistoty</div>
-            <div class="stat-value">{ci_lower:,.0f} \u20ac \u2014 {ci_upper:,.0f} \u20ac</div>
+            <div class="stat-value">{ci_lower:,.0f} € — {ci_upper:,.0f} €</div>
         </div>""", unsafe_allow_html=True)
     with s2:
         st.markdown(f"""<div class="stat-card">
-            <div class="stat-label">Cena za m\u00b2</div>
-            <div class="stat-value">{price_per_m2:,.0f} \u20ac/m\u00b2</div>
+            <div class="stat-label">Cena za m²</div>
+            <div class="stat-value">{price_per_m2:,.0f} €/m²</div>
         </div>""", unsafe_allow_html=True)
     with s3:
         cv = np.std(model_prices) / np.mean(model_prices) if np.mean(model_prices) > 0 else 0
         if cv < 0.05:
-            dot_html, agreement_label = '<span class="dot-green">\u25cf</span>', "Vysok\u00e1 zhoda"
+            dot_html, agreement_label = '<span class="dot-green">●</span>', "Vysoká zhoda"
         elif cv < 0.15:
-            dot_html, agreement_label = '<span class="dot-yellow">\u25cf</span>', "Mierna zhoda"
+            dot_html, agreement_label = '<span class="dot-yellow">●</span>', "Mierna zhoda"
         else:
-            dot_html, agreement_label = '<span class="dot-red">\u25cf</span>', "N\u00edzka zhoda"
+            dot_html, agreement_label = '<span class="dot-red">●</span>', "Nízka zhoda"
         st.markdown(f"""<div class="stat-card">
             <div class="stat-label">Zhoda modelov</div>
             <div class="stat-value">{dot_html} {agreement_label} ({cv:.1%})</div>
@@ -801,7 +824,7 @@ if st.session_state.prediction_done and st.session_state.input_data:
 
     with map_col:
         with st.container(border=True):
-            st.markdown('<p class="card-label">Poloha nehnute\u013enosti</p>', unsafe_allow_html=True)
+            st.markdown('<p class="card-label">Poloha nehnuteľnosti</p>', unsafe_allow_html=True)
             loc_name = input_data['obec_cast']
             loc_viz = mappings['locations'].get(loc_name, {'lat': 48.1486, 'lon': 17.1077})
             map_data = pd.DataFrame({
@@ -817,44 +840,44 @@ if st.session_state.prediction_done and st.session_state.input_data:
                 layers=[pdk.Layer("ScatterplotLayer", data=map_data,
                     get_position='[lon, lat]', get_color='[200, 30, 0, 160]',
                     get_radius=200, pickable=True)],
-                tooltip={"text": "{name}\nCena: {price} \u20ac\nPlocha: {area} m\u00b2"}
+                tooltip={"text": "{name}\nCena: {price} €\nPlocha: {area} m²"}
             ), use_container_width=True)
 
     with shap_col:
         with st.container(border=True):
-            st.markdown('<p class="card-label">\u010co najviac ovplyv\u0148uje cenu?</p>', unsafe_allow_html=True)
+            st.markdown('<p class="card-label">Čo najviac ovplyvňuje cenu?</p>', unsafe_allow_html=True)
             if shap_values is not None:
                 top_factors = get_plain_language_shap(shap_values[0], final_price, X_input=X_input, top_n=5)
                 for label, eur, fmt_val in top_factors:
-                    direction = "zvy\u0161uje" if eur > 0 else "zni\u017euje"
+                    direction = "zvyšuje" if eur > 0 else "znižuje"
                     icon = "\U0001f53a" if eur > 0 else "\U0001f53b"
                     val_str = f" ({fmt_val})" if fmt_val else ""
-                    st.markdown(f"{icon} **{label}**{val_str} {direction} cenu o **{abs(eur):,.0f} \u20ac**")
-                st.caption("Na z\u00e1klade XGBoost SHAP anal\u00fdzy. Hodnoty s\u00fa aproxim\u00e1cie vplyvu na fin\u00e1lnu cenu.")
+                    st.markdown(f"{icon} **{label}**{val_str} {direction} cenu o **{abs(eur):,.0f} €**")
+                st.caption("Na základe XGBoost SHAP analýzy. Hodnoty sú aproximácie vplyvu na finálnu cenu.")
 
     # ========================================================
     # SECTION 4: WHAT-IF ANALYSIS
     # ========================================================
 
     with st.container(border=True):
-        st.markdown('<p class="card-label">What-If Anal\u00fdza</p>', unsafe_allow_html=True)
+        st.markdown('<p class="card-label">Scenáre</p>', unsafe_allow_html=True)
 
         # 4a: Renovation simulation
-        st.markdown("#### Simul\u00e1cia rekon\u0161trukcie")
+        st.markdown("#### Simulácia rekonštrukcie")
         current_stav = input_data['stav_final']
-        if current_stav not in ('Kompletn\u00e1 rekon\u0161trukcia', 'Novostavba', 'Developersk\u00fd projekt'):
+        if current_stav not in ('Kompletná rekonštrukcia', 'Novostavba', 'Developerský projekt'):
             input_renovated = input_data.copy()
-            input_renovated['stav_final'] = 'Kompletn\u00e1 rekon\u0161trukcia'
+            input_renovated['stav_final'] = 'Kompletná rekonštrukcia'
             X_renovated = process_input(input_renovated, mappings, features, category)
             price_renovated, _ = predict_ensemble(X_renovated, models)
             increase = price_renovated - final_price
-            st.metric("Potenci\u00e1lna cena po rekon\u0161trukcii", f"{price_renovated:,.0f} \u20ac", delta=f"+{increase:,.0f} \u20ac")
+            st.metric("Potenciálna cena po rekonštrukcii", f"{price_renovated:,.0f} €", delta=f"+{increase:,.0f} €")
         else:
-            st.info("Nehnute\u013enos\u0165 je u\u017e v top stave (Novostavba / Rekon\u0161trukcia).")
+            st.info("Nehnuteľnosť je už v top stave (Novostavba / Rekonštrukcia).")
 
         # 4b: Location comparison
         st.markdown("---")
-        st.markdown("#### Porovnanie lokal\u00edt")
+        st.markdown("#### Porovnanie lokalít")
 
         all_locations = sorted(mappings['locations'].keys())
         whatif_search = st.text_input("Hľadať lokality na porovnanie...", value="", key="whatif_search",
@@ -902,27 +925,27 @@ if st.session_state.prediction_done and st.session_state.input_data:
             n_cols = 1 + len(comparison_results)
             cols = st.columns(n_cols)
             with cols[0]:
-                st.markdown(f"**{input_data['obec_cast']}** (origin\u00e1l)")
-                st.metric("Cena", f"{final_price:,.0f} \u20ac")
-                st.caption(f"{price_per_m2:,.0f} \u20ac/m\u00b2")
+                st.markdown(f"**{input_data['obec_cast']}** (originál)")
+                st.metric("Cena", f"{final_price:,.0f} €")
+                st.caption(f"{price_per_m2:,.0f} €/m²")
 
             for i, comp in enumerate(comparison_results):
                 with cols[i + 1]:
                     delta = comp['price'] - final_price
                     st.markdown(f"**{comp['location']}**")
-                    st.metric("Cena", f"{comp['price']:,.0f} \u20ac", delta=f"{delta:+,.0f} \u20ac")
-                    st.caption(f"{comp['price_m2']:,.0f} \u20ac/m\u00b2")
+                    st.metric("Cena", f"{comp['price']:,.0f} €", delta=f"{delta:+,.0f} €")
+                    st.caption(f"{comp['price_m2']:,.0f} €/m²")
                     if comp['shap_diff']:
                         for lbl, eur_d in comp['shap_diff']:
                             icon = "\U0001f53a" if eur_d > 0 else "\U0001f53b"
-                            st.markdown(f"{icon} {lbl}: **{eur_d:+,.0f} \u20ac**")
+                            st.markdown(f"{icon} {lbl}: **{eur_d:+,.0f} €**")
 
             # Multi-pin map
             loc_orig = mappings['locations'].get(input_data['obec_cast'], {'lat': 48.15, 'lon': 17.11})
             pin_colors = [[200, 30, 0, 180], [30, 130, 200, 180], [30, 180, 30, 180], [255, 150, 0, 180]]
             all_pins = [{
                 'lat': loc_orig['lat'], 'lon': loc_orig['lon'],
-                'name': input_data['obec_cast'] + ' (origin\u00e1l)',
+                'name': input_data['obec_cast'] + ' (originál)',
                 'price': f"{final_price:,.0f}", 'color': pin_colors[0],
             }]
             for i, comp in enumerate(comparison_results):
@@ -944,15 +967,15 @@ if st.session_state.prediction_done and st.session_state.input_data:
                 layers=[pdk.Layer("ScatterplotLayer", data=pins_df,
                     get_position='[lon, lat]', get_color='color',
                     get_radius=300, pickable=True)],
-                tooltip={"text": "{name}\nCena: {price} \u20ac"}
+                tooltip={"text": "{name}\nCena: {price} €"}
             ), use_container_width=True)
 
     # ========================================================
     # SECTION 5: DETAILED ANALYSIS (collapsed)
     # ========================================================
 
-    with st.expander("Podrobn\u00e1 anal\u00fdza"):
-        st.markdown("#### SHAP Waterfall")
+    with st.expander("Podrobná analýza"):
+        st.markdown("#### SHAP diagram")
         shap_model_name = st.selectbox(
             "Model pre vysvetlenie:",
             ["XGBoost", "LightGBM", "CatBoost"],
@@ -967,21 +990,21 @@ if st.session_state.prediction_done and st.session_state.input_data:
         fig.set_size_inches(10, 5)
         st.pyplot(fig, use_container_width=False)
         plt.clf()
-        st.caption("**\u010cerven\u00e9 (+):** zvy\u0161uj\u00fa cenu oproti priemeru. **Modr\u00e9 (-):** zni\u017euj\u00fa cenu oproti priemeru.")
+        st.caption("**Červené (+):** zvyšujú cenu oproti priemeru. **Modré (-):** znižujú cenu oproti priemeru.")
 
         st.markdown("#### Porovnanie modelov")
         details = pd.DataFrame({
             'Model': ['XGBoost', 'LightGBM', 'CatBoost', 'Neural Network', 'Ensemble (Final)'],
-            'Predikcia (\u20ac)': model_prices + [final_price],
-            'Odch\u00fdlka': [f"{((p - final_price) / final_price) * 100:+.1f}%" for p in model_prices] + ['\u2014']
+            'Predikcia (€)': model_prices + [final_price],
+            'Odchýlka': [f"{((p - final_price) / final_price) * 100:+.1f}%" for p in model_prices] + ['—']
         })
-        st.table(details.style.format({'Predikcia (\u20ac)': '{:,.0f}'}))
+        st.table(details.style.format({'Predikcia (€)': '{:,.0f}'}))
 
         median_price = np.median(model_prices)
         clipped = [min(max(p, median_price * 0.3), median_price * 3.0) for p in model_prices]
         chart_df = pd.DataFrame({
             'Model': ['XGBoost', 'LightGBM', 'CatBoost', 'Neural Network', 'Ensemble'],
-            'Predikcia (\u20ac)': clipped + [final_price]
+            'Predikcia (€)': clipped + [final_price]
         })
         st.bar_chart(chart_df.set_index('Model'))
 
@@ -989,25 +1012,25 @@ if st.session_state.prediction_done and st.session_state.input_data:
     # SECTION 6: TECHNICAL DETAILS (collapsed)
     # ========================================================
 
-    with st.expander("Technick\u00e9 detaily modelu"):
+    with st.expander("Technické detaily modelu"):
         mape_display = DASHBOARD['MAPE_BYTY'] if category == 'byty' else DASHBOARD['MAPE_DOMY']
         st.markdown(f"""
-**Architekt\u00fara:** Stacking Ensemble (XGB + LGB + CB + NN \u2192 Ridge)
+**Architektúra:** Stacking Ensemble (XGB + LGB + CB + NN → Ridge)
 
-**Dataset:** {'10,773 bytov' if category == 'byty' else '11,060 domov'} (po filtr\u00e1cii anom\u00e1li\u00ed)
+**Dataset:** {'10,773 bytov' if category == 'byty' else '11,060 domov'} (po filtrácii anomálií)
 
-**Po\u010det atrib\u00fatov:** {'73' if category == 'byty' else '72'}
+**Počet atribútov:** {'73' if category == 'byty' else '72'}
 
-**Valida\u010dn\u00e9 metriky ({category}):**
+**Validačné metriky ({category}):**
 | Metrika | Hodnota |
 |---|---|
-| MAE | {'27,388 \u20ac' if category == 'byty' else '55,639 \u20ac'} |
+| MAE | {'27,388 €' if category == 'byty' else '55,639 €'} |
 | MAPE | {mape_display*100:.1f}% |
-| R\u00b2 | {'0.856' if category == 'byty' else '0.739'} |
+| R² | {'0.856' if category == 'byty' else '0.739'} |
 
-**Feature Selection:** RFECV {'30' if category == 'byty' else '37'}/{'73' if category == 'byty' else '72'} \u2192 <0.6% MAE n\u00e1rast
+**Feature Selection:** RFECV {'30' if category == 'byty' else '37'}/{'73' if category == 'byty' else '72'} → <0.6% MAE nárast
 
-**Tr\u00e9ning:** Febru\u00e1r 2026
+**Tréning:** Február 2026
 """)
 
     # Store results in session state
@@ -1044,7 +1067,7 @@ with st.expander("Spätná väzba"):
 
 st.markdown("""
 <div class="app-footer">
-    <strong>Proof of Concept</strong> \u00b7 Odhad sl\u00fa\u017ei ako orient\u00e1cia, nie ako znaleck\u00fd posudok<br><br>
-    <a href="https://github.com/adamJesensky/slovak-real-estate-predictor/issues">Nahl\u00e1si\u0165 chybu</a>
+    <strong>Proof of Concept</strong> · Odhad slúži ako orientácia, nie ako znalecký posudok<br><br>
+    <a href="https://github.com/adamJesensky/slovak-real-estate-predictor/issues">Nahlásiť chybu</a>
 </div>
 """, unsafe_allow_html=True)
