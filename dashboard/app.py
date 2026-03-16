@@ -89,6 +89,11 @@ def predict_ensemble(X_input, models):
         pred_nn = np.nan_to_num(pred_nn, nan=DASHBOARD['NN_FALLBACK'],
                                 posinf=DASHBOARD['NN_CLAMP_MAX'], neginf=DASHBOARD['NN_CLAMP_MIN'])
         pred_nn = np.clip(pred_nn, DASHBOARD['NN_CLAMP_MIN'], DASHBOARD['NN_CLAMP_MAX'])
+    # Anchor NN to tree model consensus — if NN diverges too far, snap to median
+    tree_median = np.median([pred_xgb[0], pred_lgb[0], pred_cb[0]])
+    nn_divergence = abs(pred_nn[0] - tree_median)
+    if nn_divergence > 0.5:  # >0.5 in log space ≈ 65% price difference
+        pred_nn = np.array([tree_median])
     stack_X = np.column_stack((pred_xgb, pred_lgb, pred_cb, pred_nn))
     final_log = models['meta'].predict(stack_X)
     final_price = np.exp(final_log)[0]
@@ -246,7 +251,8 @@ def process_input(data, mappings, feature_cols, category):
 
     cond_map = {
         'Novostavba': 4, 'Developersk\u00fd projekt': 4, 'Kompletn\u00e1 rekon\u0161trukcia': 3,
-        '\u010ciasto\u010dn\u00e1 rekon\u0161trukcia': 2, 'P\u00f4vodn\u00fd stav': 1, 'Vo v\u00fdstavbe': 4, 'In\u00fd stav': 0,
+        '\u010ciasto\u010dn\u00e1 rekon\u0161trukcia': 2, 'P\u00f4vodn\u00fd stav': 1, 'Vo v\u00fdstavbe': 4,
+        'Ur\u010den\u00fd k demol\u00e1cii': 0, 'undefined': 0,
     }
     df['condition_score'] = cond_map.get(data['stav_final'], 0)
 
@@ -600,8 +606,15 @@ with st.form("input_form"):
             room_count = st.number_input(
                 "Po\u010det izieb", min_value=1, max_value=10, value=2,
             )
-            stav = st.selectbox("Stav", mappings['options']['stav_final'])
-            construction = st.selectbox("Kon\u0161trukcia", mappings['options']['construction'])
+            _hidden_stav = {'undefined', 'Určený k demolácii', 'Developerský projekt'}
+            stav_options = [s for s in mappings['options']['stav_final'] if s not in _hidden_stav]
+            stav = st.selectbox("Stav", stav_options)
+            _hide_constr_always = {'Unknown', 'Skeleton', 'Prefab'}
+            _hide_constr_byty = {'Stone', 'Wood'}
+            _hide_constr_domy = {'Panel', 'ReinforcedConcrete'}
+            _hide = _hide_constr_always | (_hide_constr_byty if category == 'byty' else _hide_constr_domy)
+            constr_options = [c for c in mappings['options']['construction'] if c not in _hide]
+            construction = st.selectbox("Kon\u0161trukcia", constr_options)
             if category == 'byty':
                 current_floor = st.number_input("Poschodie", min_value=0, max_value=30, value=2)
                 total_floors = st.number_input("Po\u010det poschod\u00ed v budove", min_value=1, max_value=30, value=5)
@@ -620,14 +633,22 @@ with st.form("input_form"):
         with st.container(border=True):
             st.markdown('<p class="card-label">Lokalita</p>', unsafe_allow_html=True)
             all_locations = sorted(mappings['locations'].keys())
-            location = st.selectbox(
-                "Obec / mestská časť", all_locations,
-                help="Začnite písať pre filtrovanie."
-            )
+            loc_search = st.text_input("Hľadať obec...", value="", key="loc_search",
+                                        placeholder="napr. Cadca, Zilina, Presov",
+                                        help="Funguje aj bez diakritiky.")
+            if loc_search.strip():
+                loc_query = strip_diacritics(loc_search).lower()
+                filtered_locs = [l for l in all_locations if loc_query in strip_diacritics(l).lower()]
+            else:
+                filtered_locs = all_locations
+            if not filtered_locs:
+                st.caption("Žiadne výsledky")
+                filtered_locs = all_locations
+            location = st.selectbox("Obec / mestská časť", filtered_locs)
 
-            vlastnictvo = st.selectbox("Vlastn\u00edctvo",
-                ['Osobn\u00e9', 'Dru\u017estevn\u00e9', 'Firemn\u00e9', 'Obecn\u00e9', '\u0160t\u00e1tne', 'In\u00e9', 'Nevysporiadan\u00e9', 'Unknown'])
-            heating = st.selectbox("K\u00farenie", mappings['options']['heating'])
+            vlastnictvo = st.selectbox("Vlastn\u00edctvo", ['Osobn\u00e9', 'Firemn\u00e9'])
+            heat_options = [h for h in mappings['options']['heating'] if h != 'unknown']
+            heating = st.selectbox("K\u00farenie", heat_options)
 
     row2_col1, row2_col2 = st.columns(2)
 
@@ -829,13 +850,20 @@ if st.session_state.prediction_done and st.session_state.input_data:
         st.markdown("#### Porovnanie lokal\u00edt")
 
         all_locations = sorted(mappings['locations'].keys())
-        whatif_options = [loc for loc in all_locations if loc != input_data['obec_cast']]
+        whatif_search = st.text_input("Hľadať lokality na porovnanie...", value="", key="whatif_search",
+                                       placeholder="napr. Cadca, Zilina, Presov",
+                                       help="Funguje aj bez diakritiky. Vybrané lokality zostanú zachované.")
+        whatif_all = [loc for loc in all_locations if loc != input_data['obec_cast']]
+        if whatif_search.strip():
+            whatif_query = strip_diacritics(whatif_search).lower()
+            whatif_filtered = [loc for loc in whatif_all if whatif_query in strip_diacritics(loc).lower()]
+        else:
+            whatif_filtered = whatif_all
         target_locs = st.multiselect(
             "Porovnať cenu v iných lokalitách (max 3):",
-            whatif_options,
+            whatif_filtered,
             max_selections=3,
-            key="whatif_locations",
-            help="Začnite písať názov obce pre vyhľadanie."
+            key="whatif_locations"
         )
 
         if target_locs:
@@ -985,15 +1013,19 @@ with st.expander("Spätná väzba"):
                                   placeholder="Opíšte váš návrh alebo problém...")
     if st.button("Odoslať spätnú väzbu", type="primary", key="fb_submit"):
         if feedback_text.strip():
-            import urllib.parse
-            subject = urllib.parse.quote(f"Feedback: {feedback_type}")
-            body = urllib.parse.quote(feedback_text)
-            mailto = f"mailto:ajesensky8@gmail.com?subject={subject}&body={body}"
-            st.markdown(f'<a href="{mailto}" target="_blank" style="'
-                        f'display:inline-block;padding:8px 20px;background:var(--accent,#007AFF);'
-                        f'color:white;border-radius:8px;text-decoration:none;font-weight:500;'
-                        f'">Otvoriť emailový klient</a>', unsafe_allow_html=True)
-            st.success("Kliknite na tlačidlo vyššie pre odoslanie cez váš emailový klient.")
+            import requests as _req
+            _formspree_url = "https://formspree.io/f/mjgaaejd" if 
+            try:
+                _resp = _req.post(_formspree_url, json={
+                    "email": "anonymous@feedback.form",
+                    "message": f"[{feedback_type}] {feedback_text}",
+                }, headers={"Accept": "application/json"})
+                if _resp.ok:
+                    st.success("Spätná väzba bola odoslaná. Ďakujeme!")
+                else:
+                    st.error("Nepodarilo sa odoslať. Skúste neskôr alebo nás kontaktujte na ajesensky8@gmail.com.")
+            except Exception:
+                st.error("Nepodarilo sa odoslať. Skúste neskôr alebo nás kontaktujte na ajesensky8@gmail.com.")
         else:
             st.warning("Prosím, napíšte správu.")
 
