@@ -1014,7 +1014,7 @@ with st.expander("Spätná väzba"):
     if st.button("Odoslať spätnú väzbu", type="primary", key="fb_submit"):
         if feedback_text.strip():
             import requests as _req
-            _formspree_url = "https://formspree.io/f/mjgaaejd" if 
+            _formspree_url = "https://formspree.io/f/mjgaaejd" 
             try:
                 _resp = _req.post(_formspree_url, json={
                     "email": "anonymous@feedback.form",
