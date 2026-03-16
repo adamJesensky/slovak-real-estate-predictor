@@ -103,7 +103,7 @@ FEATURE_LABELS = {
     'room_count': 'Počet izieb',
     'has_lift': 'Výťah',
     'relative_floor': 'Relatívne poschodie',
-    'utilities_score': 'Inžinierske siete',
+    'utilities_score': 'Inž. siete (N/A)',
     'has_balcony': 'Balkón',
     'has_loggia': 'Loggia',
     'has_cellar': 'Pivnica',
@@ -128,28 +128,76 @@ FEATURE_LABELS = {
     'has_water': 'Voda',
     'has_electricity': 'Elektrina',
     'has_sewerage': 'Kanalizácia',
+    'has_pantry': 'Špajza',
+    'has_warehouse': 'Sklad',
+    'has_ac': 'Klimatizácia',
+    'month_sin': 'Sezónnosť',
+    'month_cos': 'Sezónnosť',
+    'year_added': 'Rok inzerátu',
+    'month_added': 'Mesiac inzerátu',
 }
 
 def shap_to_eur(shap_value, final_price):
     """Convert SHAP value (ln-price space) to EUR impact."""
     return final_price * (1 - np.exp(-shap_value))
 
-def get_plain_language_shap(shap_values_row, final_price, top_n=5):
-    """Return list of (feature_label, eur_impact) sorted by |impact|."""
+def _format_feature_value(fname, raw_value):
+    """Format a feature's raw value for display next to SHAP explanation."""
+    if fname in ('location_score_m2',):
+        return f"{raw_value:,.0f} €/m²"
+    if fname in ('floor_size', 'land_area', 'built_up_area'):
+        return f"{raw_value:,.0f} m²"
+    if fname in ('log_area', 'log_land_area'):
+        return f"{np.expm1(raw_value):,.0f} m²"
+    if fname in ('dist_bratislava', 'dist_nearest_city'):
+        return f"{raw_value:,.0f} km"
+    if fname in ('room_count', 'current_floor', 'total_floors', 'balkon', 'loggia', 'podlazie'):
+        return f"{int(raw_value)}"
+    if fname == 'condition_score':
+        score_labels = {0: 'Iný', 1: 'Pôvodný', 2: 'Čiastočná rek.', 3: 'Kompletná rek.', 4: 'Novostavba'}
+        return score_labels.get(int(raw_value), str(int(raw_value)))
+    if fname == 'relative_floor':
+        return f"{raw_value:.0%}"
+    if fname == 'avg_room_size':
+        return f"{raw_value:,.0f} m²"
+    if fname in ('days_on_market',):
+        return f"{int(raw_value)} dní"
+    if fname == 'built_up_ratio':
+        return f"{raw_value:.0%}"
+    # Binary features
+    if fname.startswith('has_') or fname in ('is_ground_floor', 'is_top_floor', 'no_lift_high_floor'):
+        return "áno" if raw_value >= 0.5 else "nie"
+    # One-hot encoded categories — extract the category name
+    for prefix in ('stav_final_', 'construction_type_mapped_', 'heating_type_', 'vlastnictvo_'):
+        if fname.startswith(prefix):
+            return "áno" if raw_value >= 0.5 else "nie"
+    return None
+
+def get_plain_language_shap(shap_values_row, final_price, X_input=None, top_n=5):
+    """Return list of (feature_label, eur_impact, formatted_value) sorted by |impact|."""
     values = shap_values_row.values
     feature_names = shap_values_row.feature_names
     impacts = []
     for sv, fname in zip(values, feature_names):
         eur = shap_to_eur(sv, final_price)
         label = FEATURE_LABELS.get(fname, fname)
-        impacts.append((label, eur, fname))
+        # Get actual value for display
+        fmt_val = None
+        if X_input is not None:
+            try:
+                raw_val = X_input[fname].values[0] if hasattr(X_input, '__getitem__') else None
+                if raw_val is not None:
+                    fmt_val = _format_feature_value(fname, raw_val)
+            except (KeyError, IndexError):
+                pass
+        impacts.append((label, eur, fname, fmt_val))
     impacts.sort(key=lambda x: abs(x[1]), reverse=True)
     seen_labels = set()
     unique = []
-    for label, eur, fname in impacts:
+    for label, eur, fname, fmt_val in impacts:
         if label not in seen_labels:
             seen_labels.add(label)
-            unique.append((label, eur))
+            unique.append((label, eur, fmt_val))
         if len(unique) >= top_n:
             break
     return unique
@@ -403,11 +451,6 @@ with st.form("input_form"):
         has_garage = st.checkbox("Garáž", help="Prítomnosť garáže.")
         has_parking = st.checkbox("Parkovanie", help="Parkovacie miesto.")
         has_terrace = st.checkbox("Terasa", help="Prítomnosť terasy.")
-        st.markdown("**Inžinierske siete**")
-        has_gas = st.checkbox("Plyn", value=True, help="Prípojka plynu.")
-        has_water = st.checkbox("Voda", value=True, help="Prípojka vody.")
-        has_electricity = st.checkbox("Elektrina", value=True, help="Prípojka elektriny.")
-        has_sewerage = st.checkbox("Kanalizácia", value=True, help="Prípojka kanalizácie.")
 
     st.markdown("---")
     market_price = st.number_input(
@@ -436,10 +479,10 @@ if submitted:
         'has_terrace': int(has_terrace),
         'land_area': land_area,
         'built_up_area': built_up_area,
-        'has_gas': int(has_gas),
-        'has_water': int(has_water),
-        'has_electricity': int(has_electricity),
-        'has_sewerage': int(has_sewerage),
+        'has_gas': 1,
+        'has_water': 1,
+        'has_electricity': 1,
+        'has_sewerage': 1,
         'heating': heating,
         'vlastnictvo': vlastnictvo,
         'market_price': market_price,
@@ -553,12 +596,13 @@ if st.session_state.prediction_done and st.session_state.input_data:
     with shap_col:
         st.markdown("### 💡 Čo najviac ovplyvňuje cenu?")
         if show_shap and shap_values is not None:
-            top_factors = get_plain_language_shap(shap_values[0], final_price, top_n=5)
+            top_factors = get_plain_language_shap(shap_values[0], final_price, X_input=X_input, top_n=5)
 
-            for label, eur in top_factors:
+            for label, eur, fmt_val in top_factors:
                 direction = "zvyšuje" if eur > 0 else "znižuje"
                 icon = "🔺" if eur > 0 else "🔻"
-                st.markdown(f"{icon} **{label}** {direction} cenu o **{abs(eur):,.0f} €**")
+                val_str = f" ({fmt_val})" if fmt_val else ""
+                st.markdown(f"{icon} **{label}**{val_str} {direction} cenu o **{abs(eur):,.0f} €**")
 
             st.caption("Na základe XGBoost SHAP analýzy. Hodnoty sú aproximácie vplyvu na finálnu cenu.")
         else:
