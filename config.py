@@ -46,19 +46,20 @@ FE = {
 # Modeling
 MODELING = {
     "RANDOM_SEED": 42,
-    "N_FOLDS": 5,
+    "N_FOLDS": 10,
     "TEST_SIZE": 0.2,
     "NN_EPOCHS": 150,
     "NN_BATCH_SIZE": 64,
     "NN_LEARNING_RATE": 0.001,
     "ANOMALY_CONTAMINATION_FLATS": 0.02,
-    "ANOMALY_CONTAMINATION_HOUSES": 0.03
+    "ANOMALY_CONTAMINATION_HOUSES": 0.03,
+    "FEATURE_SELECTION_THRESHOLD": 0.005
 }
 
 # Dashboard
 DASHBOARD = {
-    "MAPE_BYTY": 0.131,
-    "MAPE_DOMY": 0.269,
+    "MAPE_BYTY": 0.0887,
+    "MAPE_DOMY": 0.2514,
     "REGIONAL_CITIES": {
         'Bratislava': (48.1486, 17.1077),
         'Trnava': (48.3709, 17.5833),

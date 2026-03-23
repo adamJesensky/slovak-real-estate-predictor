@@ -51,27 +51,53 @@ class AdvancedNN(nn.Module):
 
 # --- Load Resources ---
 @st.cache_resource
-def load_resources(category):
-    with open(os.path.join(ASSETS_DIR, f'mappings_{category}.json'), 'r', encoding='utf-8') as f:
-        mappings = json.load(f)
-    features = joblib.load(os.path.join(MODELS_DIR, f'features_{category}.joblib'))
+def _load_model_set(tag):
+    """Load a complete model set (XGB + LGB + CB + NN + meta) for a given tag."""
+    features = joblib.load(os.path.join(MODELS_DIR, f'features_{tag}.joblib'))
     models = {}
-    models['xgb'] = joblib.load(os.path.join(MODELS_DIR, f'xgb_{category}.joblib'))
-    models['lgb'] = joblib.load(os.path.join(MODELS_DIR, f'lgb_{category}.joblib'))
+    models['xgb'] = joblib.load(os.path.join(MODELS_DIR, f'xgb_{tag}.joblib'))
+    models['lgb'] = joblib.load(os.path.join(MODELS_DIR, f'lgb_{tag}.joblib'))
     cb = CatBoostRegressor()
-    cb.load_model(os.path.join(MODELS_DIR, f'cb_{category}.cbm'))
+    cb.load_model(os.path.join(MODELS_DIR, f'cb_{tag}.cbm'))
     models['cb'] = cb
-    models['meta'] = joblib.load(os.path.join(MODELS_DIR, f'meta_{category}.joblib'))
-    imputer = joblib.load(os.path.join(MODELS_DIR, f'nn_imputer_{category}.joblib'))
-    scaler = joblib.load(os.path.join(MODELS_DIR, f'nn_scaler_{category}.joblib'))
+    models['meta'] = joblib.load(os.path.join(MODELS_DIR, f'meta_{tag}.joblib'))
+    imputer = joblib.load(os.path.join(MODELS_DIR, f'nn_imputer_{tag}.joblib'))
+    scaler = joblib.load(os.path.join(MODELS_DIR, f'nn_scaler_{tag}.joblib'))
     device = torch.device('cpu')
     nn_model = AdvancedNN(len(features))
-    nn_model.load_state_dict(torch.load(os.path.join(MODELS_DIR, f'nn_{category}.pth'), map_location=device))
+    nn_model.load_state_dict(torch.load(os.path.join(MODELS_DIR, f'nn_{tag}.pth'), map_location=device))
     nn_model.eval()
     models['nn'] = nn_model
     models['nn_imputer'] = imputer
     models['nn_scaler'] = scaler
-    return mappings, features, models
+    return features, models
+
+@st.cache_resource
+def load_resources(category):
+    with open(os.path.join(ASSETS_DIR, f'mappings_{category}.json'), 'r', encoding='utf-8') as f:
+        mappings = json.load(f)
+
+    if category == 'byty':
+        # Regional models: separate BA and non-BA model sets
+        features_ba, models_ba = _load_model_set('byty_ba')
+        features_nonba, models_nonba = _load_model_set('byty_nonba')
+        model_sets = {
+            'ba': (features_ba, models_ba),
+            'nonba': (features_nonba, models_nonba),
+        }
+    else:
+        features, models = _load_model_set('domy')
+        model_sets = {'all': (features, models)}
+
+    return mappings, model_sets
+
+def get_region(category, location_name):
+    """Determine which model region to use based on location."""
+    if category == 'byty' and location_name and location_name.startswith('Bratislava'):
+        return 'ba'
+    elif category == 'byty':
+        return 'nonba'
+    return 'all'
 
 # --- Helpers ---
 
@@ -599,7 +625,7 @@ category = _cat_label.lower()
 
 # --- Load Models ---
 with st.spinner("Načítavam modely... Prosím čakajte."):
-    mappings, features, models = load_resources(category)
+    mappings, model_sets = load_resources(category)
 
 # --- Location Search (outside form — needs dynamic filtering) ---
 all_locations = sorted(mappings['locations'].keys())
@@ -621,6 +647,23 @@ location = st_searchbox(
 if location is None or location not in mappings['locations']:
     location = all_locations[0] if all_locations else ""
 
+# Determine active model region and features for form rendering
+_form_region = get_region(category, location)
+_form_features = set(model_sets[_form_region][0])
+
+# Amenity toggles — only show features the active model uses
+_AMENITIES = [
+    ('has_lift', 'Výťah'),
+    ('has_loggia', 'Loggia'),
+    ('has_cellar', 'Pivnica'),
+    ('has_garage', 'Garáž'),
+    ('has_parking', 'Parkovanie'),
+    ('has_terrace', 'Terasa'),
+    ('has_pantry', 'Špajza'),
+    ('has_warehouse', 'Sklad'),
+    ('has_ac', 'Klimatizácia'),
+]
+_visible_amenities = [(k, l) for k, l in _AMENITIES if k in _form_features and k != 'has_lift']
 
 # ============================================================
 # SECTION 1: INPUT FORM — 2-column layout
@@ -678,15 +721,22 @@ with st.form("input_form"):
 
         with st.container(border=True):
             st.markdown('<p class="card-label">Vybavenie</p>', unsafe_allow_html=True)
-            vybavenie_cols = st.columns(2)
-            with vybavenie_cols[0]:
-                has_balcony = st.toggle("Balkón", value=False)
-                has_loggia = st.toggle("Loggia", value=False)
-                has_cellar = st.toggle("Pivnica", value=False)
-            with vybavenie_cols[1]:
-                has_garage = st.toggle("Garáž", value=False)
-                has_parking = st.toggle("Parkovanie", value=False)
-                has_terrace = st.toggle("Terasa", value=False)
+            _amenity_values = {}
+            if _visible_amenities:
+                _mid = (len(_visible_amenities) + 1) // 2
+                vybavenie_cols = st.columns(2)
+                with vybavenie_cols[0]:
+                    for _akey, _alabel in _visible_amenities[:_mid]:
+                        _amenity_values[_akey] = st.toggle(_alabel, value=False, key=f"am_{_akey}")
+                with vybavenie_cols[1]:
+                    for _akey, _alabel in _visible_amenities[_mid:]:
+                        _amenity_values[_akey] = st.toggle(_alabel, value=False, key=f"am_{_akey}")
+            has_balcony = _amenity_values.get('has_balcony', False)
+            has_loggia = _amenity_values.get('has_loggia', False)
+            has_cellar = _amenity_values.get('has_cellar', False)
+            has_garage = _amenity_values.get('has_garage', False)
+            has_parking = _amenity_values.get('has_parking', False)
+            has_terrace = _amenity_values.get('has_terrace', False)
 
         with st.container(border=True):
             st.markdown('<p class="card-label">Porovnanie s inzerátom</p>', unsafe_allow_html=True)
@@ -724,6 +774,9 @@ if submitted and _valid:
         'has_garage': int(has_garage),
         'has_parking': int(has_parking),
         'has_terrace': int(has_terrace),
+        'has_pantry': int(_amenity_values.get('has_pantry', False)),
+        'has_warehouse': int(_amenity_values.get('has_warehouse', False)),
+        'has_ac': int(_amenity_values.get('has_ac', False)),
         'land_area': land_area,
         'built_up_area': built_up_area,
         'has_gas': 1,
@@ -744,7 +797,9 @@ if st.session_state.prediction_done and st.session_state.input_data:
     input_data = st.session_state.input_data
     market_price = input_data.get('market_price', 0)
 
-    # --- Prediction ---
+    # --- Prediction (select regional model set) ---
+    region = get_region(category, input_data.get('obec_cast', ''))
+    features, models = model_sets[region]
     X_input = process_input(input_data, mappings, features, category)
     final_price, (pred_xgb, pred_lgb, pred_cb, pred_nn) = predict_ensemble(X_input, models)
     ci_lower, ci_upper = calculate_confidence_interval(final_price, category)
@@ -752,8 +807,9 @@ if st.session_state.prediction_done and st.session_state.input_data:
 
     # SHAP (computed once, reused across sections — always on)
     shap_values = None
+    region_tag = f'byty_{region}' if category == 'byty' else 'domy'
     with st.spinner("Počítam vysvetlenie modelu..."):
-        explainer = get_shap_explainer(models['xgb'], f'xgb_{category}')
+        explainer = get_shap_explainer(models['xgb'], f'xgb_{region_tag}')
         shap_values = explainer(X_input)
 
     # ========================================================
@@ -907,12 +963,17 @@ if st.session_state.prediction_done and st.session_state.input_data:
             for loc in target_locs:
                 input_loc = input_data.copy()
                 input_loc['obec_cast'] = loc
-                X_loc = process_input(input_loc, mappings, features, category)
-                price_loc, _ = predict_ensemble(X_loc, models)
+                # Use the correct regional model for this location
+                loc_region = get_region(category, loc)
+                loc_features, loc_models = model_sets[loc_region]
+                X_loc = process_input(input_loc, mappings, loc_features, category)
+                price_loc, _ = predict_ensemble(X_loc, loc_models)
                 loc_stats_comp = mappings['locations'].get(loc, {'location_score_m2': 0, 'lat': 48.15, 'lon': 17.11})
                 shap_diff_top = []
-                if shap_values is not None:
-                    shap_loc = get_shap_explainer(models['xgb'], f'xgb_{category}')(X_loc)
+                loc_tag = f'byty_{loc_region}' if category == 'byty' else 'domy'
+                # SHAP diff only works when both locations use the same model (same region)
+                if shap_values is not None and loc_region == region:
+                    shap_loc = get_shap_explainer(loc_models['xgb'], f'xgb_{loc_tag}')(X_loc)
                     shap_diff_top = get_shap_diff_top(shap_values[0], shap_loc[0], price_loc)
                 comparison_results.append({
                     'location': loc, 'price': price_loc,
@@ -983,7 +1044,7 @@ if st.session_state.prediction_done and st.session_state.input_data:
         )
         model_key_map = {"XGBoost": 'xgb', "LightGBM": 'lgb', "CatBoost": 'cb'}
         detail_key = model_key_map[shap_model_name]
-        detail_explainer = get_shap_explainer(models[detail_key], f'{detail_key}_{category}')
+        detail_explainer = get_shap_explainer(models[detail_key], f'{detail_key}_{region_tag}')
         detail_shap = detail_explainer(X_input)
         shap.plots.waterfall(detail_shap[0], show=False, max_display=10)
         fig = plt.gcf()
