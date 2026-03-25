@@ -571,18 +571,10 @@ div[data-testid="stRadio"] > label { display: none !important; }
     color: var(--accent);
     font-weight: 500;
 }
-.scraper-banner .scraper-warnings {
-    margin-top: 0.5rem;
-    padding: 0;
-    list-style: none;
-}
-.scraper-banner .scraper-warnings li {
+.scraper-warning-item {
     font-size: 0.8rem;
     color: var(--warning);
     padding: 0.15rem 0;
-}
-.scraper-banner .scraper-warnings li::before {
-    content: "⚠ ";
 }
 .scraper-banner .scraper-hint {
     font-size: 0.78rem;
@@ -616,6 +608,15 @@ div[data-testid="stRadio"] > label { display: none !important; }
     opacity: 0.85;
 }
 
+/* ---- Inputs: rounded corners to match glass cards ---- */
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+[data-testid="stSelectbox"] > div > div,
+.stSearchbox input,
+.stSearchbox > div > div > div {
+    border-radius: 10px !important;
+}
+
 /* ---- Expander as Glass ---- */
 [data-testid="stExpander"] {
     background: var(--surface-glass) !important;
@@ -644,6 +645,65 @@ div[data-testid="stRadio"] > label { display: none !important; }
 /* ---- Hide sidebar ---- */
 [data-testid="stSidebar"] { display: none !important; }
 [data-testid="stSidebarCollapsedControl"] { display: none !important; }
+
+/* ---- Responsive: Tablets (≤ 1024px) ---- */
+@media (max-width: 1024px) {
+    .block-container {
+        max-width: 100% !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+}
+
+/* ---- Responsive: Mobile (≤ 640px) ---- */
+@media (max-width: 640px) {
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 1rem !important;
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+    }
+    h1 {
+        font-size: 1.5rem !important;
+    }
+    .hero-price {
+        font-size: 2rem;
+    }
+    .hero-subtitle {
+        font-size: 0.78rem;
+    }
+    .verdict-badge {
+        font-size: 0.78rem;
+        padding: 0.25rem 0.8rem;
+    }
+    .stat-card {
+        min-height: auto;
+        padding: 0.8rem 1rem;
+        margin-bottom: 0.3rem;
+    }
+    .stat-card .stat-value {
+        font-size: 0.95rem;
+        white-space: normal;
+    }
+    .stat-card .stat-label {
+        font-size: 0.65rem;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        border-radius: 12px !important;
+        padding: 0.3rem !important;
+    }
+    .card-label {
+        font-size: 0.65rem;
+    }
+    .scraper-banner {
+        border-radius: 10px;
+        padding: 0.8rem 1rem;
+    }
+    div[data-testid="stRadio"] > div > label {
+        padding: 0.35rem 1rem !important;
+        font-size: 0.85rem;
+    }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -752,16 +812,16 @@ if st.session_state.scraper_result:
     if _sr.get('confidence') == 'low':
         _all_warnings.append("Lokalita bola priradená len približne. Odporúčame overiť výber.")
     _price_html = f'<div class="scraper-price">Inzerovaná cena: {_sr_price:,} €</div>' if _sr_price > 0 else ''
-    _warnings_html = ''
-    if _all_warnings:
-        _warning_items = ''.join(f'<li>{w}</li>' for w in _all_warnings)
-        _warnings_html = f'<ul class="scraper-warnings">{_warning_items}</ul>'
-    st.markdown(f"""<div class="scraper-banner">
-        <div class="scraper-title">{_title_short}</div>
-        {_price_html}
-        {_warnings_html}
-        <div class="scraper-hint">Formulár bol vyplnený údajmi z inzerátu. Skontrolujte hodnoty a kliknite <strong>Odhadnúť cenu</strong>.</div>
-    </div>""", unsafe_allow_html=True)
+    _warnings_html = ''.join(f'<div class="scraper-warning-item">⚠ {w}</div>' for w in _all_warnings)
+    st.markdown(
+        f'<div class="scraper-banner">'
+        f'<div class="scraper-title">{_title_short}</div>'
+        f'{_price_html}'
+        f'{_warnings_html}'
+        f'<div class="scraper-hint">Formulár bol vyplnený údajmi z inzerátu. Skontrolujte hodnoty a kliknite Odhadnúť cenu.</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 # --- Prefill dict (from scraper or empty) ---
 _pf = {}
@@ -1034,17 +1094,22 @@ if st.session_state.prediction_done and st.session_state.input_data:
 
     # --- Three stat cards: Interval | €/m² | Zhoda ---
     s1, s2, s3 = st.columns(3)
+    _stat_desc_style = 'font-size:0.75rem;color:var(--text-secondary);margin-top:2px'
     with s1:
         mape_pct = (DASHBOARD['MAPE_BYTY'] if category == 'byty' else DASHBOARD['MAPE_DOMY']) * 100
-        st.markdown(f"""<div class="stat-card">
-            <div class="stat-label">Cenové rozpätie (±{mape_pct:.0f}%)</div>
-            <div class="stat-value">{ci_lower:,.0f} € — {ci_upper:,.0f} €</div>
-        </div>""", unsafe_allow_html=True)
+        st.markdown(f'<div class="stat-card">'
+            f'<div class="stat-label">Cenové rozpätie (±{mape_pct:.0f}%)</div>'
+            f'<div class="stat-value">{ci_lower:,.0f} € — {ci_upper:,.0f} €</div>'
+            f'<div style="{_stat_desc_style}">Na základe presnosti modelu</div>'
+            f'</div>', unsafe_allow_html=True)
     with s2:
-        st.markdown(f"""<div class="stat-card">
-            <div class="stat-label">Cena za m²</div>
-            <div class="stat-value">{price_per_m2:,.0f} €/m²</div>
-        </div>""", unsafe_allow_html=True)
+        _m2_diff = price_per_m2 - loc_avg_m2
+        _m2_note = f'{_m2_diff:+,.0f} €/m² oproti priemeru' if loc_avg_m2 > 0 else '&nbsp;'
+        st.markdown(f'<div class="stat-card">'
+            f'<div class="stat-label">Cena za m²</div>'
+            f'<div class="stat-value">{price_per_m2:,.0f} €/m²</div>'
+            f'<div style="{_stat_desc_style}">{_m2_note}</div>'
+            f'</div>', unsafe_allow_html=True)
     with s3:
         cv = np.std(model_prices) / np.mean(model_prices) if np.mean(model_prices) > 0 else 0
         if cv < 0.05:
@@ -1056,11 +1121,11 @@ if st.session_state.prediction_done and st.session_state.input_data:
         else:
             dot_html, agreement_label = '<span class="dot-red">●</span>', "Nízka"
             agreement_desc = "Veľké rozdiely — orientujte sa podľa cenového rozpätia"
-        st.markdown(f"""<div class="stat-card">
-            <div class="stat-label">Spoľahlivosť odhadu</div>
-            <div class="stat-value">{dot_html} {agreement_label}</div>
-            <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px">{agreement_desc}</div>
-        </div>""", unsafe_allow_html=True)
+        st.markdown(f'<div class="stat-card">'
+            f'<div class="stat-label">Spoľahlivosť odhadu</div>'
+            f'<div class="stat-value">{dot_html} {agreement_label}</div>'
+            f'<div style="{_stat_desc_style}">{agreement_desc}</div>'
+            f'</div>', unsafe_allow_html=True)
 
     # ========================================================
     # SECTION 3: MAP + SHAP
