@@ -777,7 +777,7 @@ with st.container(border=True):
     _url_col, _btn_col = st.columns([5, 1])
     with _url_col:
         _listing_url = st.text_input(
-            "URL inzerátu", placeholder="https://www.nehnutelnosti.sk/...",
+            "URL inzerátu", placeholder="www.nehnutelnosti.sk/... alebo www.reality.sk/...",
             label_visibility="collapsed", key="_listing_url"
         )
     with _btn_col:
