@@ -793,9 +793,14 @@ def fetch_listing(url: str) -> dict:
         return {'success': False,
                 'error': f'Inzerát je typu "{parsed["transaction"]}". Podporujeme len predaj.'}
 
-    # Check we have at least floor_size with a sane value
+    # Check we have at least floor_size with a sane value.
+    # For domy (houses), land_area alone is acceptable — floor_size will be
+    # defaulted later in build_model_input() with a warning.
     floor_size = parsed.get('floor_size', 0)
-    if not floor_size or floor_size < 8:
+    land_area = parsed.get('land_area', 0)
+    has_usable_area = (floor_size and floor_size >= 8) or \
+                      (category == 'domy' and land_area and land_area >= 10)
+    if not has_usable_area:
         return {'success': False,
                 'error': 'Nepodarilo sa nájsť plochu nehnuteľnosti v inzeráte.'}
 
