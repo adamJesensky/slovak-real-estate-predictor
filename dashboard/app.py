@@ -215,7 +215,7 @@ def get_plain_language_shap(shap_values_row, final_price, X_input=None, top_n=5)
     impacts = []
     for sv, fname in zip(values, feature_names):
         eur = shap_to_eur(sv, final_price)
-        label = FEATURE_LABELS.get(fname, fname)
+        label = translate_feature_name(fname)
         # Get actual value for display
         fmt_val = None
         if X_input is not None:
@@ -245,7 +245,7 @@ def get_shap_diff_top(shap_original, shap_comparison, price_comparison, top_n=3)
     seen = set()
     sorted_pairs = sorted(zip(diff_values, feature_names), key=lambda x: abs(x[0]), reverse=True)
     for sv, fn in sorted_pairs:
-        lbl = FEATURE_LABELS.get(fn, fn)
+        lbl = translate_feature_name(fn)
         if lbl not in seen:
             seen.add(lbl)
             eur_diff = price_comparison * (1 - np.exp(-sv))
@@ -518,11 +518,11 @@ div[data-testid="stRadio"] > label { display: none !important; }
     font-size: 0.85rem;
     font-weight: 500;
 }
-.verdict-fair { background: rgba(52,199,89,0.12); color: #34c759; }
-.verdict-over { background: rgba(255,59,48,0.12); color: #ff3b30; }
-.verdict-slight-over { background: rgba(255,149,0,0.12); color: #ff9500; }
-.verdict-under { background: rgba(255,149,0,0.12); color: #ff9500; }
-.verdict-good { background: rgba(52,199,89,0.12); color: #34c759; }
+.verdict-fair { background: rgba(52,199,89,0.15); color: #248a3d; }
+.verdict-over { background: rgba(255,59,48,0.15); color: #d70015; }
+.verdict-slight-over { background: rgba(255,149,0,0.15); color: #b25000; }
+.verdict-under { background: rgba(255,149,0,0.15); color: #b25000; }
+.verdict-good { background: rgba(52,199,89,0.15); color: #248a3d; }
 
 /* ---- Stat Cards ---- */
 .stat-card {
@@ -532,6 +532,10 @@ div[data-testid="stRadio"] > label { display: none !important; }
     border-radius: 12px;
     padding: 1rem 1.2rem;
     text-align: center;
+    min-height: 5.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
 }
 .stat-card .stat-label {
     font-size: 0.7rem;
@@ -541,9 +545,49 @@ div[data-testid="stRadio"] > label { display: none !important; }
     margin-bottom: 0.3rem;
 }
 .stat-card .stat-value {
-    font-size: 1.2rem;
+    font-size: 1.1rem;
     font-weight: 500;
     color: var(--text-primary);
+    white-space: nowrap;
+}
+
+/* ---- Scraper Banner ---- */
+.scraper-banner {
+    background: var(--surface-glass);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--surface-border);
+    border-radius: 12px;
+    padding: 1rem 1.2rem;
+    margin-bottom: 0.5rem;
+}
+.scraper-banner .scraper-title {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 0.2rem;
+}
+.scraper-banner .scraper-price {
+    font-size: 0.85rem;
+    color: var(--accent);
+    font-weight: 500;
+}
+.scraper-banner .scraper-warnings {
+    margin-top: 0.5rem;
+    padding: 0;
+    list-style: none;
+}
+.scraper-banner .scraper-warnings li {
+    font-size: 0.8rem;
+    color: var(--warning);
+    padding: 0.15rem 0;
+}
+.scraper-banner .scraper-warnings li::before {
+    content: "⚠ ";
+}
+.scraper-banner .scraper-hint {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    margin-top: 0.5rem;
 }
 
 /* ---- Agreement Dots ---- */
@@ -649,9 +693,12 @@ def _apply_scraper_result(inp, warns, conf, title):
     st.session_state.scraper_result = {
         'input': inp, 'warnings': warns, 'confidence': conf, 'title': title,
     }
+    # Remove any stale amenity keys from session state — the toggle widgets will
+    # re-create them from the `value=` parameter (via _pf) on the next render.
+    # Setting both session_state[key] AND value= causes a Streamlit conflict.
     for _ak in ['has_balcony', 'has_loggia', 'has_cellar', 'has_garage', 'has_parking',
                  'has_terrace', 'has_pantry', 'has_warehouse', 'has_ac']:
-        st.session_state[f'am_{_ak}'] = bool(inp.get(_ak, 0))
+        st.session_state.pop(f'am_{_ak}', None)
     st.session_state._form_ver = st.session_state.get('_form_ver', 0) + 1
     st.session_state._sb_ver = st.session_state.get('_sb_ver', 0) + 1
     st.session_state.prediction_done = False
@@ -701,15 +748,20 @@ if st.session_state.scraper_result:
     _sr_title = _sr.get('title', 'Inzerát')
     _sr_price = _sr['input'].get('market_price', 0)
     _title_short = (_sr_title[:80] + '...') if len(_sr_title) > 80 else _sr_title
-    if _sr_price > 0:
-        st.info(f"**{_title_short}** · Inzerovaná cena: **{_sr_price:,} €**")
-    else:
-        st.info(f"**{_title_short}**")
-    for _w in _sr.get('warnings', []):
-        st.warning(_w)
+    _all_warnings = list(_sr.get('warnings', []))
     if _sr.get('confidence') == 'low':
-        st.warning("Lokalita bola priradená len približne. Odporúčame overiť výber.")
-    st.caption("Formulár bol vyplnený údajmi z inzerátu. Skontrolujte hodnoty a kliknite **Odhadnúť cenu**.")
+        _all_warnings.append("Lokalita bola priradená len približne. Odporúčame overiť výber.")
+    _price_html = f'<div class="scraper-price">Inzerovaná cena: {_sr_price:,} €</div>' if _sr_price > 0 else ''
+    _warnings_html = ''
+    if _all_warnings:
+        _warning_items = ''.join(f'<li>{w}</li>' for w in _all_warnings)
+        _warnings_html = f'<ul class="scraper-warnings">{_warning_items}</ul>'
+    st.markdown(f"""<div class="scraper-banner">
+        <div class="scraper-title">{_title_short}</div>
+        {_price_html}
+        {_warnings_html}
+        <div class="scraper-hint">Formulár bol vyplnený údajmi z inzerátu. Skontrolujte hodnoty a kliknite <strong>Odhadnúť cenu</strong>.</div>
+    </div>""", unsafe_allow_html=True)
 
 # --- Prefill dict (from scraper or empty) ---
 _pf = {}
