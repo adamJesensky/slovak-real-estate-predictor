@@ -23,7 +23,9 @@ MODELS_DIR = os.path.join(BASE_DIR, 'models')
 ASSETS_DIR = os.path.join(BASE_DIR, 'dashboard', 'assets')
 
 sys.path.insert(0, os.path.join(BASE_DIR))
+sys.path.insert(0, os.path.join(BASE_DIR, 'dashboard'))
 from config import DASHBOARD
+from listing_scraper import fetch_listing, build_model_input as _build_scraper_input
 
 # --- Neural Network Definition (Must match training) ---
 class AdvancedNN(nn.Module):
@@ -268,6 +270,23 @@ HEATING_LABELS = {
     'central': 'Ústredné', 'local': 'Lokálne', 'other': 'Iné',
     'underfloor': 'Podlahové', 'unknown': 'Neznáme',
 }
+
+def translate_feature_name(fname):
+    """Translate a model feature name to Slovak for SHAP display."""
+    if fname in FEATURE_LABELS:
+        return FEATURE_LABELS[fname]
+    for prefix, label, value_map in [
+        ('stav_final_', 'Stav', None),
+        ('construction_type_mapped_', 'Konštrukcia', CONSTRUCTION_LABELS),
+        ('heating_type_', 'Kúrenie', HEATING_LABELS),
+        ('vlastnictvo_', 'Vlastníctvo', None),
+    ]:
+        if fname.startswith(prefix):
+            value = fname[len(prefix):]
+            if value_map:
+                value = value_map.get(value, value)
+            return f"{label}: {value}"
+    return fname
 
 def strip_diacritics(text):
     """Remove diacritics: 'Žilina' -> 'Zilina', 'Prešov' -> 'Presov'."""
@@ -606,29 +625,115 @@ if 'prediction_done' not in st.session_state:
     st.session_state.prediction_done = False
 if 'input_data' not in st.session_state:
     st.session_state.input_data = None
+if 'scraper_result' not in st.session_state:
+    st.session_state.scraper_result = None
 
 # --- Help Section ---
 with st.expander("Ako to funguje?"):
     st.markdown("""
-**Tento nástroj odhaduje trhovú cenu nehnuteľnosti** na základe podobných inzerátov z nehnutelnosti.sk.
+**Tento nástroj odhaduje trhovú cenu nehnuteľnosti** na základe 13 000+ reálnych inzerátov z nehnutelnosti.sk (február 2026).
 
-- **Interval neistoty** — rozsah, v ktorom sa reálna cena pravdepodobne nachádza
-- **Zhoda modelov** — nakoľko sa 4 nezávislé modely zhodujú (vyššia zhoda = spoľahlivší odhad)
-- **SHAP analýza** — vysvetľuje, ktoré faktory cenu najviac ovplyvňujú a o koľko EUR
+**Čo znamenajú výsledky:**
+- **Odhadovaná cena** — najpravdepodobnejšia trhová cena na základe zadaných parametrov
+- **Interval neistoty** — rozsah, v ktorom sa reálna cena s veľkou pravdepodobnosťou nachádza. Čím užší interval, tým istejší odhad.
+- **Zhoda modelov** — 4 nezávislé modely odhadujú cenu každý zvlášť. Ak sa ich odhady líšia málo (zelená bodka), výsledok je spoľahlivejší. Väčšie rozdiely (žltá/červená) naznačujú menej istý odhad.
+- **Čo ovplyvňuje cenu** — zobrazuje, ktoré faktory cenu najviac zvyšujú alebo znižujú oproti priemeru, a o koľko EUR
+
+**Obmedzenia:**
+- Odhad vychádza z inzerovaných cien, nie z reálnych predajných cien
+- Model nezohľadňuje vnútornú dispozíciu, výhľad, hluk ani stav interiéru
+- Pre lokality s málo inzerátmi môže byť odhad menej presný
+- Byty v Bratislave a mimo Bratislavy používajú oddelené modely optimalizované pre každý trh
 
 *Odhad slúži ako orientácia, nie ako znalecký posudok.*
 """)
 
 # --- Segment Toggle (outside form) ---
-_cat_label = st.radio("Segment", ["Byty", "Domy"], horizontal=True, label_visibility="collapsed")
+_cat_label = st.radio("Segment", ["Byty", "Domy"], horizontal=True,
+                       label_visibility="collapsed", key="segment_toggle")
 category = _cat_label.lower()
 
 # --- Load Models ---
 with st.spinner("Načítavam modely... Prosím čakajte."):
     mappings, model_sets = load_resources(category)
 
+def _apply_scraper_result(inp, warns, conf, title):
+    """Store scraper output in session_state, bump form/searchbox versions, and rerun."""
+    st.session_state.scraper_result = {
+        'input': inp, 'warnings': warns, 'confidence': conf, 'title': title,
+    }
+    for _ak in ['has_balcony', 'has_loggia', 'has_cellar', 'has_garage', 'has_parking',
+                 'has_terrace', 'has_pantry', 'has_warehouse', 'has_ac']:
+        st.session_state[f'am_{_ak}'] = bool(inp.get(_ak, 0))
+    st.session_state._form_ver = st.session_state.get('_form_ver', 0) + 1
+    st.session_state._sb_ver = st.session_state.get('_sb_ver', 0) + 1
+    st.session_state.prediction_done = False
+    st.session_state.input_data = None
+
+# --- Process pending scraper result (from category switch) ---
+if '_scraper_pending' in st.session_state:
+    _pending = st.session_state.pop('_scraper_pending')
+    _inp, _warns, _conf = _build_scraper_input(_pending['parsed'], category, mappings)
+    _apply_scraper_result(_inp, _warns, _conf, _pending.get('title', ''))
+    st.rerun()
+
+# --- URL Scraper Section ---
+with st.container(border=True):
+    st.markdown('<p class="card-label">Načítať z inzerátu</p>', unsafe_allow_html=True)
+    _url_col, _btn_col = st.columns([5, 1])
+    with _url_col:
+        _listing_url = st.text_input(
+            "URL inzerátu", placeholder="https://www.nehnutelnosti.sk/...",
+            label_visibility="collapsed", key="_listing_url"
+        )
+    with _btn_col:
+        _fetch_clicked = st.button("Načítať", use_container_width=True)
+
+    if _fetch_clicked and _listing_url.strip():
+        with st.spinner("Načítavam údaje z inzerátu..."):
+            _result = fetch_listing(_listing_url.strip())
+        if not _result['success']:
+            st.error(_result['error'])
+        else:
+            _detected_cat = _result['category']
+            if _detected_cat != category:
+                # Category mismatch — switch segment and retry after rerun
+                st.session_state.segment_toggle = 'Byty' if _detected_cat == 'byty' else 'Domy'
+                st.session_state._scraper_pending = _result
+                st.rerun()
+            else:
+                _inp, _warns, _conf = _build_scraper_input(_result['parsed'], category, mappings)
+                _apply_scraper_result(_inp, _warns, _conf, _result.get('title', ''))
+                st.rerun()
+    elif _fetch_clicked:
+        st.warning("Zadajte URL inzerátu.")
+
+# --- Scraper info banner ---
+if st.session_state.scraper_result:
+    _sr = st.session_state.scraper_result
+    _sr_title = _sr.get('title', 'Inzerát')
+    _sr_price = _sr['input'].get('market_price', 0)
+    _title_short = (_sr_title[:80] + '...') if len(_sr_title) > 80 else _sr_title
+    if _sr_price > 0:
+        st.info(f"**{_title_short}** · Inzerovaná cena: **{_sr_price:,} €**")
+    else:
+        st.info(f"**{_title_short}**")
+    for _w in _sr.get('warnings', []):
+        st.warning(_w)
+    if _sr.get('confidence') == 'low':
+        st.warning("Lokalita bola priradená len približne. Odporúčame overiť výber.")
+
+# --- Prefill dict (from scraper or empty) ---
+_pf = {}
+if st.session_state.scraper_result:
+    _pf = st.session_state.scraper_result.get('input', {})
+
 # --- Location Search (outside form — needs dynamic filtering) ---
 all_locations = sorted(mappings['locations'].keys())
+_sb_ver = st.session_state.get('_sb_ver', 0)
+_loc_default = _pf.get('obec_cast', all_locations[0] if all_locations else None)
+if _loc_default and _loc_default not in mappings['locations']:
+    _loc_default = all_locations[0] if all_locations else None
 
 def search_location(query: str) -> list[str]:
     if not query.strip():
@@ -640,9 +745,9 @@ location = st_searchbox(
     search_location,
     placeholder="Hľadať obec... (napr. Cadca, Zilina)",
     label="Obec / mestská časť",
-    default=all_locations[0] if all_locations else None,
+    default=_loc_default,
     default_options=all_locations[:20],
-    key=f"loc_searchbox_{category}",
+    key=f"loc_searchbox_{category}_{_sb_ver}",
 )
 if location is None or location not in mappings['locations']:
     location = all_locations[0] if all_locations else ""
@@ -654,6 +759,7 @@ _form_features = set(model_sets[_form_region][0])
 # Amenity toggles — only show features the active model uses
 _AMENITIES = [
     ('has_lift', 'Výťah'),
+    ('has_balcony', 'Balkón'),
     ('has_loggia', 'Loggia'),
     ('has_cellar', 'Pivnica'),
     ('has_garage', 'Garáž'),
@@ -666,57 +772,92 @@ _AMENITIES = [
 _visible_amenities = [(k, l) for k, l in _AMENITIES if k in _form_features and k != 'has_lift']
 
 # ============================================================
-# SECTION 1: INPUT FORM — 2-column layout
+# SECTION 1: INPUT FORM — 2-column layout (versioned for scraper auto-fill)
 # ============================================================
 
-with st.form("input_form"):
+_form_ver = st.session_state.get('_form_ver', 0)
+
+# --- Compute prefill defaults for selectboxes ---
+_hidden_stav = {'undefined', 'Určený k demolácii', 'Developerský projekt'}
+stav_options = [s for s in mappings['options']['stav_final'] if s not in _hidden_stav]
+
+_pf_stav = _pf.get('stav_final', stav_options[0] if stav_options else 'Pôvodný stav')
+if _pf_stav in _hidden_stav:
+    _pf_stav = {'Developerský projekt': 'Novostavba'}.get(_pf_stav, 'Pôvodný stav')
+_stav_idx = stav_options.index(_pf_stav) if _pf_stav in stav_options else 0
+
+_hide_constr_always = {'Unknown', 'Skeleton', 'Prefab'}
+_hide_constr_byty = {'Stone', 'Wood'}
+_hide_constr_domy = {'Panel', 'ReinforcedConcrete'}
+_hide = _hide_constr_always | (_hide_constr_byty if category == 'byty' else _hide_constr_domy)
+constr_options = [c for c in mappings['options']['construction'] if c not in _hide]
+constr_labels = [CONSTRUCTION_LABELS.get(c, c) for c in constr_options]
+
+_pf_constr = _pf.get('construction', constr_options[0] if constr_options else 'Brick')
+if _pf_constr in _hide:
+    _pf_constr = constr_options[0] if constr_options else 'Brick'
+_pf_constr_label = CONSTRUCTION_LABELS.get(_pf_constr, _pf_constr)
+_constr_idx = constr_labels.index(_pf_constr_label) if _pf_constr_label in constr_labels else 0
+
+heat_options = [h for h in mappings['options']['heating'] if h != 'unknown']
+heat_labels = [HEATING_LABELS.get(h, h) for h in heat_options]
+
+_pf_heat = _pf.get('heating', heat_options[0] if heat_options else 'central')
+if _pf_heat not in heat_options:
+    _pf_heat = heat_options[0] if heat_options else 'central'
+_pf_heat_label = HEATING_LABELS.get(_pf_heat, _pf_heat)
+_heat_idx = heat_labels.index(_pf_heat_label) if _pf_heat_label in heat_labels else 0
+
+_vlastnictvo_opts = ['Osobné', 'Firemné']
+_pf_vlast = _pf.get('vlastnictvo', 'Osobné')
+_vlast_idx = _vlastnictvo_opts.index(_pf_vlast) if _pf_vlast in _vlastnictvo_opts else 0
+
+with st.form(f"input_form_{_form_ver}"):
     form_left, form_right = st.columns(2)
 
     # --- Card 1: Nehnuteľnosť ---
     with form_left:
         with st.container(border=True):
             st.markdown('<p class="card-label">Nehnuteľnosť</p>', unsafe_allow_html=True)
+            _fs_max = 500 if category == 'byty' else 2000
             floor_size = st.number_input(
-                "Plocha (m²)", min_value=10, max_value=500, value=60,
+                "Plocha (m²)", min_value=10, max_value=_fs_max,
+                value=max(10, min(_fs_max, int(_pf.get('floor_size', 60)))),
                 help="Úžitková plocha nehnuteľnosti."
             )
             room_count = st.number_input(
-                "Počet izieb", min_value=1, max_value=10, value=2,
+                "Počet izieb", min_value=1, max_value=10,
+                value=max(1, min(10, int(_pf.get('room_count', 2)))),
             )
-            _hidden_stav = {'undefined', 'Určený k demolácii', 'Developerský projekt'}
-            stav_options = [s for s in mappings['options']['stav_final'] if s not in _hidden_stav]
-            stav = st.selectbox("Stav", stav_options)
-            _hide_constr_always = {'Unknown', 'Skeleton', 'Prefab'}
-            _hide_constr_byty = {'Stone', 'Wood'}
-            _hide_constr_domy = {'Panel', 'ReinforcedConcrete'}
-            _hide = _hide_constr_always | (_hide_constr_byty if category == 'byty' else _hide_constr_domy)
-            constr_options = [c for c in mappings['options']['construction'] if c not in _hide]
-            constr_labels = [CONSTRUCTION_LABELS.get(c, c) for c in constr_options]
-            _constr_label = st.selectbox("Konštrukcia", constr_labels)
+            stav = st.selectbox("Stav", stav_options, index=_stav_idx)
+            _constr_label = st.selectbox("Konštrukcia", constr_labels, index=_constr_idx)
             construction = constr_options[constr_labels.index(_constr_label)]
             if category == 'byty':
-                current_floor = st.number_input("Poschodie", min_value=0, max_value=30, value=2)
-                total_floors = st.number_input("Počet poschodí v budove", min_value=1, max_value=30, value=5)
-                has_lift = st.toggle("Výťah", value=False)
+                current_floor = st.number_input("Poschodie", min_value=0, max_value=30,
+                    value=max(0, min(30, int(_pf.get('current_floor', 2)))))
+                total_floors = st.number_input("Počet poschodí v budove", min_value=1, max_value=30,
+                    value=max(1, min(30, int(_pf.get('total_floors', 5)))))
+                has_lift = st.toggle("Výťah", value=bool(_pf.get('has_lift', False)))
                 land_area = 0
                 built_up_area = 0
             else:
                 current_floor = 0
-                total_floors = st.number_input("Počet podlaží", min_value=1, max_value=5, value=1)
-                land_area = st.number_input("Plocha pozemku (m²)", min_value=0, max_value=5000, value=400,
-                                            help="Celková plocha pozemku.")
-                built_up_area = st.number_input("Zastavaná plocha (m²)", min_value=0, max_value=500, value=100,
-                                                help="Plocha, ktorú zaberá samotná stavba na pozemku.")
+                total_floors = st.number_input("Počet podlaží", min_value=1, max_value=5,
+                    value=max(1, min(5, int(_pf.get('total_floors', 1)))))
+                land_area = st.number_input("Plocha pozemku (m²)", min_value=0, max_value=50000,
+                    value=max(0, min(50000, int(_pf.get('land_area', 400)))),
+                    help="Celková plocha pozemku.")
+                built_up_area = st.number_input("Zastavaná plocha (m²)", min_value=0, max_value=5000,
+                    value=max(0, min(5000, int(_pf.get('built_up_area', 100)))),
+                    help="Plocha, ktorú zaberá samotná stavba na pozemku.")
                 has_lift = False
 
     # --- Right Column: Ostatné + Vybavenie + Porovnanie ---
     with form_right:
         with st.container(border=True):
             st.markdown('<p class="card-label">Ostatné</p>', unsafe_allow_html=True)
-            vlastnictvo = st.selectbox("Vlastníctvo", ['Osobné', 'Firemné'])
-            heat_options = [h for h in mappings['options']['heating'] if h != 'unknown']
-            heat_labels = [HEATING_LABELS.get(h, h) for h in heat_options]
-            _heat_label = st.selectbox("Kúrenie", heat_labels)
+            vlastnictvo = st.selectbox("Vlastníctvo", _vlastnictvo_opts, index=_vlast_idx)
+            _heat_label = st.selectbox("Kúrenie", heat_labels, index=_heat_idx)
             heating = heat_options[heat_labels.index(_heat_label)]
 
         with st.container(border=True):
@@ -741,7 +882,8 @@ with st.form("input_form"):
         with st.container(border=True):
             st.markdown('<p class="card-label">Porovnanie s inzerátom</p>', unsafe_allow_html=True)
             market_price = st.number_input(
-                "Inzerovaná cena (€)", min_value=0, value=0,
+                "Inzerovaná cena (€)", min_value=0,
+                value=max(0, int(_pf.get('market_price', 0))),
                 help="Voliteľné — zadajte cenu z inzerátu pre porovnanie s odhadom."
             )
 
@@ -759,6 +901,7 @@ if submitted:
 
 if submitted and _valid:
     st.session_state.prediction_done = True
+    st.session_state.scraper_result = None  # Clear prefill after form submission
     st.session_state.input_data = {
         'floor_size': floor_size,
         'obec_cast': location,
@@ -849,8 +992,9 @@ if st.session_state.prediction_done and st.session_state.input_data:
     # --- Three stat cards: Interval | €/m² | Zhoda ---
     s1, s2, s3 = st.columns(3)
     with s1:
+        mape_pct = (DASHBOARD['MAPE_BYTY'] if category == 'byty' else DASHBOARD['MAPE_DOMY']) * 100
         st.markdown(f"""<div class="stat-card">
-            <div class="stat-label">Interval neistoty</div>
+            <div class="stat-label">Cenové rozpätie (±{mape_pct:.0f}%)</div>
             <div class="stat-value">{ci_lower:,.0f} € — {ci_upper:,.0f} €</div>
         </div>""", unsafe_allow_html=True)
     with s2:
@@ -861,14 +1005,18 @@ if st.session_state.prediction_done and st.session_state.input_data:
     with s3:
         cv = np.std(model_prices) / np.mean(model_prices) if np.mean(model_prices) > 0 else 0
         if cv < 0.05:
-            dot_html, agreement_label = '<span class="dot-green">●</span>', "Vysoká zhoda"
+            dot_html, agreement_label = '<span class="dot-green">●</span>', "Vysoká"
+            agreement_desc = "Modely sa zhodujú"
         elif cv < 0.15:
-            dot_html, agreement_label = '<span class="dot-yellow">●</span>', "Mierna zhoda"
+            dot_html, agreement_label = '<span class="dot-yellow">●</span>', "Stredná"
+            agreement_desc = "Mierne rozdiely medzi modelmi"
         else:
-            dot_html, agreement_label = '<span class="dot-red">●</span>', "Nízka zhoda"
+            dot_html, agreement_label = '<span class="dot-red">●</span>', "Nízka"
+            agreement_desc = "Veľké rozdiely — odhad menej istý"
         st.markdown(f"""<div class="stat-card">
-            <div class="stat-label">Zhoda modelov</div>
-            <div class="stat-value">{dot_html} {agreement_label} ({cv:.1%})</div>
+            <div class="stat-label">Spoľahlivosť odhadu</div>
+            <div class="stat-value">{dot_html} {agreement_label}</div>
+            <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px">{agreement_desc}</div>
         </div>""", unsafe_allow_html=True)
 
     # ========================================================
@@ -1037,6 +1185,8 @@ if st.session_state.prediction_done and st.session_state.input_data:
 
     with st.expander("Podrobná analýza"):
         st.markdown("#### SHAP diagram")
+        st.caption("Diagram ukazuje, ako jednotlivé faktory posúvajú odhad ceny od priemeru. "
+                   "Červené stĺpce zvyšujú cenu, modré ju znižujú.")
         shap_model_name = st.selectbox(
             "Model pre vysvetlenie:",
             ["XGBoost", "LightGBM", "CatBoost"],
@@ -1046,12 +1196,14 @@ if st.session_state.prediction_done and st.session_state.input_data:
         detail_key = model_key_map[shap_model_name]
         detail_explainer = get_shap_explainer(models[detail_key], f'{detail_key}_{region_tag}')
         detail_shap = detail_explainer(X_input)
-        shap.plots.waterfall(detail_shap[0], show=False, max_display=10)
+        # Translate feature names to Slovak for display
+        detail_shap_row = detail_shap[0]
+        detail_shap_row.feature_names = [translate_feature_name(f) for f in detail_shap_row.feature_names]
+        shap.plots.waterfall(detail_shap_row, show=False, max_display=10)
         fig = plt.gcf()
         fig.set_size_inches(10, 5)
         st.pyplot(fig, use_container_width=False)
         plt.clf()
-        st.caption("**Červené (+):** zvyšujú cenu oproti priemeru. **Modré (-):** znižujú cenu oproti priemeru.")
 
         st.markdown("#### Porovnanie modelov")
         details = pd.DataFrame({
@@ -1075,23 +1227,42 @@ if st.session_state.prediction_done and st.session_state.input_data:
 
     with st.expander("Technické detaily modelu"):
         mape_display = DASHBOARD['MAPE_BYTY'] if category == 'byty' else DASHBOARD['MAPE_DOMY']
-        st.markdown(f"""
-**Architektúra:** Stacking Ensemble (XGB + LGB + CB + NN → Ridge)
+        if category == 'byty':
+            st.markdown(f"""
+**Architektúra:** Stacking Ensemble (XGBoost + LightGBM + CatBoost + NN → Ridge meta-learner)
 
-**Dataset:** {'10,773 bytov' if category == 'byty' else '11,060 domov'} (po filtrácii anomálií)
+**Regionálny split:** Bratislava a zvyšok Slovenska majú oddelené modely (rôzna cenová dynamika)
 
-**Počet atribútov:** {'73' if category == 'byty' else '72'}
+**Dataset:** 12 815 bytov (3 467 BA + 9 348 mimo BA), po regionálnej filtrácii anomálií
 
-**Validačné metriky ({category}):**
+**Validačné metriky (10-fold CV):**
+| Región | MAPE | MAE | R² | Atribútov |
+|---|---|---|---|---|
+| Bratislava | 6.4% | 17 658 € | 0.950 | 36 |
+| Mimo BA | 9.8% | 16 084 € | 0.887 | 46 |
+
+**Feature Selection:** XGBoost importance (threshold 0.005) — 69 → 36/46 atribútov
+
+**Tréning:** Marec 2026 · Dáta: Február 2026
+""")
+        else:
+            st.markdown(f"""
+**Architektúra:** Stacking Ensemble (XGBoost + LightGBM + CatBoost + NN → Ridge meta-learner)
+
+**Dataset:** 12 426 domov (po regionálnej filtrácii anomálií)
+
+**Validačné metriky (10-fold CV):**
 | Metrika | Hodnota |
 |---|---|
-| MAE | {'27,388 €' if category == 'byty' else '55,639 €'} |
 | MAPE | {mape_display*100:.1f}% |
-| R² | {'0.856' if category == 'byty' else '0.739'} |
+| MAE | 51 559 € |
+| R² | 0.759 |
 
-**Feature Selection:** RFECV {'30' if category == 'byty' else '37'}/{'73' if category == 'byty' else '72'} → <0.6% MAE nárast
+**Atribútov:** 37 (z 68 po feature selection)
 
-**Tréning:** Február 2026
+**Feature Selection:** XGBoost importance (threshold 0.005) — 68 → 37 atribútov
+
+**Tréning:** Marec 2026 · Dáta: Február 2026
 """)
 
     # Store results in session state
@@ -1128,7 +1299,9 @@ with st.expander("Spätná väzba"):
 
 st.markdown("""
 <div class="app-footer">
-    <strong>Proof of Concept</strong> · Odhad slúži ako orientácia, nie ako znalecký posudok<br><br>
+    <strong>Proof of Concept</strong> · Diplomová práca, UNIZA 2026<br>
+    Odhad vychádza z inzerovaných cien a slúži ako orientácia, nie ako znalecký posudok.<br>
+    Model nezohľadňuje dispozíciu, výhľad, hlučnosť okolia ani aktuálny stav interiéru.<br><br>
     <a href="https://github.com/adamJesensky/slovak-real-estate-predictor/issues">Nahlásiť chybu</a>
 </div>
 """, unsafe_allow_html=True)
