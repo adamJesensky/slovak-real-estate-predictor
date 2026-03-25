@@ -607,6 +607,15 @@ div[data-testid="stRadio"] > label { display: none !important; }
 [data-testid="stFormSubmitButton"] button:hover {
     opacity: 0.85;
 }
+/* Style all primary buttons consistently (feedback, etc.) */
+[data-testid="stBaseButton-primary"] button {
+    border-radius: 12px !important;
+    font-weight: 500 !important;
+    transition: opacity 0.2s ease;
+}
+[data-testid="stBaseButton-primary"] button:hover {
+    opacity: 0.85;
+}
 
 /* ---- Inputs: rounded corners to match glass cards ---- */
 [data-testid="stTextInput"] input,
@@ -642,9 +651,14 @@ div[data-testid="stRadio"] > label { display: none !important; }
     text-decoration: underline;
 }
 
-/* ---- Hide sidebar ---- */
+/* ---- Hide sidebar + Streamlit chrome ---- */
 [data-testid="stSidebar"] { display: none !important; }
 [data-testid="stSidebarCollapsedControl"] { display: none !important; }
+[data-testid="stHeader"] { display: none !important; }
+[data-testid="stToolbar"] { display: none !important; }
+[data-testid="stDecoration"] { display: none !important; }
+#MainMenu { display: none !important; }
+footer { display: none !important; }
 
 /* ---- Responsive: Tablets (≤ 1024px) ---- */
 @media (max-width: 1024px) {
@@ -703,6 +717,15 @@ div[data-testid="stRadio"] > label { display: none !important; }
         padding: 0.35rem 1rem !important;
         font-size: 0.85rem;
     }
+    /* Center form submit + feedback buttons on mobile */
+    [data-testid="stFormSubmitButton"],
+    [data-testid="stBaseButton-primary"] {
+        display: flex !important;
+        justify-content: center !important;
+    }
+    [data-testid="stFormSubmitButton"] button {
+        max-width: 300px !important;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -740,7 +763,16 @@ with st.expander("Ako to funguje?"):
 """)
 
 # --- Segment Toggle (outside form) ---
-_cat_label = st.radio("Segment", ["Byty", "Domy"], horizontal=True,
+# Scraper stores override in _seg_override; we pop the widget key so the radio
+# re-creates with the desired index (avoids Streamlit "cannot set widget via API" error).
+_seg_options = ["Byty", "Domy"]
+if '_seg_override' in st.session_state:
+    _seg_desired = st.session_state.pop('_seg_override')
+    st.session_state.pop('segment_toggle', None)
+    _seg_idx = _seg_options.index(_seg_desired) if _seg_desired in _seg_options else 0
+else:
+    _seg_idx = 0
+_cat_label = st.radio("Segment", _seg_options, horizontal=True, index=_seg_idx,
                        label_visibility="collapsed", key="segment_toggle")
 category = _cat_label.lower()
 
@@ -791,8 +823,8 @@ with st.container(border=True):
         else:
             _detected_cat = _result['category']
             if _detected_cat != category:
-                # Category mismatch — switch segment and retry after rerun
-                st.session_state.segment_toggle = 'Byty' if _detected_cat == 'byty' else 'Domy'
+                # Category mismatch — switch segment via override and retry after rerun
+                st.session_state._seg_override = 'Byty' if _detected_cat == 'byty' else 'Domy'
                 st.session_state._scraper_pending = _result
                 st.rerun()
             else:
@@ -842,15 +874,17 @@ def search_location(query: str) -> list[str]:
     q = strip_diacritics(query).lower()
     return [loc for loc in all_locations if q in strip_diacritics(loc).lower()]
 
-location = st_searchbox(
-    search_location,
-    placeholder="Hľadať obec... (napr. Cadca, Zilina)",
-    label="Obec / mestská časť",
-    default=_loc_default,
-    default_searchterm=_loc_default if _pf.get('obec_cast') else "",
-    default_options=all_locations[:20],
-    key=f"loc_searchbox_{category}_{_sb_ver}",
-)
+with st.container(border=True):
+    st.markdown('<p class="card-label">Obec / mestská časť</p>', unsafe_allow_html=True)
+    location = st_searchbox(
+        search_function=search_location,
+        placeholder="Hľadať obec... (napr. Cadca, Zilina)",
+        label="",
+        default=_loc_default,
+        default_searchterm=_loc_default if _pf.get('obec_cast') else "",
+        default_options=all_locations[:20],
+        key=f"loc_searchbox_{category}_{_sb_ver}",
+    )
 if location is None or location not in mappings['locations']:
     location = _loc_fallback or ""
 
@@ -947,10 +981,10 @@ with st.form(f"input_form_{_form_ver}"):
                 total_floors = st.number_input("Počet podlaží", min_value=1, max_value=5,
                     value=max(1, min(5, int(_pf.get('total_floors', 1)))))
                 land_area = st.number_input("Plocha pozemku (m²)", min_value=0, max_value=50000,
-                    value=max(0, min(50000, int(_pf.get('land_area', 400)))),
+                    value=max(0, min(50000, int(_pf.get('land_area', 0)))),
                     help="Celková plocha pozemku.")
                 built_up_area = st.number_input("Zastavaná plocha (m²)", min_value=0, max_value=5000,
-                    value=max(0, min(5000, int(_pf.get('built_up_area', 100)))),
+                    value=max(0, min(5000, int(_pf.get('built_up_area', 0)))),
                     help="Plocha, ktorú zaberá samotná stavba na pozemku.")
                 has_lift = False
 
@@ -997,15 +1031,14 @@ if submitted:
     if category == 'byty' and current_floor > total_floors:
         st.warning("Poschodie nemôže byť vyššie ako počet poschodí v budove.")
         _valid = False
-    if category == 'domy' and land_area == 0:
-        st.warning("Plocha pozemku nie je zadaná. Odhad môže byť nepresný.")
     if category == 'domy' and built_up_area > land_area > 0:
         st.warning("Zastavaná plocha nemôže byť väčšia ako plocha pozemku.")
         _valid = False
 
 if submitted and _valid:
     st.session_state.prediction_done = True
-    st.session_state.scraper_result = None  # Clear prefill after form submission
+    # NOTE: do NOT clear scraper_result here — it is used as prefill source (_pf)
+    # on subsequent reruns.  Clearing it resets form widgets to defaults.
     st.session_state.input_data = {
         'floor_size': floor_size,
         'obec_cast': location,
@@ -1396,7 +1429,7 @@ with st.expander("Spätná väzba"):
     feedback_type = st.selectbox("Typ:", ["Návrh na zlepšenie", "Chyba / bug", "Nepresný odhad", "Iné"], key="fb_type")
     feedback_text = st.text_area("Vaša správa:", height=120, key="fb_text",
                                   placeholder="Opíšte váš návrh alebo problém...")
-    if st.button("Odoslať spätnú väzbu", type="primary", key="fb_submit"):
+    if st.button("Odoslať spätnú väzbu", type="primary", key="fb_submit", use_container_width=True):
         if feedback_text.strip():
             import requests as _req
             _formspree_url = "https://formspree.io/f/mjgaaejd" 

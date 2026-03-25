@@ -380,6 +380,16 @@ def _extract_rsc_payload(html: str, data: dict):
                         pass
                 elif 'pivn' in label.lower() and 'has_cellar_rsc' not in data:
                     data['has_cellar_rsc'] = True
+                elif 'Plocha pozemku' in label and 'land_area' not in data:
+                    try:
+                        data['land_area'] = float(re.sub(r'[^\d.,]', '', value).replace(',', '.'))
+                    except ValueError:
+                        pass
+                elif 'Zastavaná plocha' in label and 'built_up_area' not in data:
+                    try:
+                        data['built_up_area'] = float(re.sub(r'[^\d.,]', '', value).replace(',', '.'))
+                    except ValueError:
+                        pass
                 elif 'Vybavenie' in label or 'ybavenie' in label:
                     data.setdefault('vybavenie_texts', [])
                     data['vybavenie_texts'].append(value)
@@ -877,6 +887,8 @@ def build_model_input(parsed: dict, category: str, mappings: dict) -> tuple:
     # --- Land area (domy only) ---
     land_area = int(parsed.get('land_area', 0)) if category == 'domy' else 0
     built_up_area = int(parsed.get('built_up_area', 0)) if category == 'domy' else 0
+    if category == 'domy' and not land_area:
+        warnings.append('Plocha pozemku nebola v inzeráte uvedená. Zadajte manuálne pre presnejší odhad.')
 
     # --- Price ---
     price = int(parsed.get('price', 0))
