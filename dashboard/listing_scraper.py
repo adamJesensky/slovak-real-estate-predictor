@@ -238,7 +238,66 @@ def parse_detail_html(html: str) -> dict:
     if title_tag:
         data['title'] = title_tag.get_text(strip=True)
 
+    # 6. Meta tags — fallback for client-side rendered pages (nehnutelnosti.sk React SPA)
+    for meta in soup.find_all('meta'):
+        name = meta.get('name', '').lower()
+        prop = meta.get('property', '').lower()
+        content = meta.get('content', '')
+        if not content:
+            continue
+
+        if (name == 'description' or prop == 'og:description') and 'meta_description' not in data:
+            data['meta_description'] = content
+            _parse_meta_description(content, data)
+
+        if prop == 'og:title' and 'title' not in data:
+            data['title'] = content
+
+    # 7. Breadcrumb links for category (nehnutelnosti.sk uses /vysledky/byty paths)
+    if 'category_raw' not in data:
+        for a_tag in soup.find_all('a', href=True):
+            href = a_tag['href'].lower()
+            if '/vysledky/' in href or '/predaj/' in href:
+                if '/byty' in href:
+                    data['category_raw'] = 'byty'
+                    break
+                if '/domy' in href:
+                    data['category_raw'] = 'domy'
+                    break
+
     return data
+
+
+def _parse_meta_description(content: str, data: dict):
+    """Extract structured info from meta description.
+    Common format: '2 izbový byt, Predaj, Bratislava-Nové Mesto, Novostavba, 60 m², 376 341 €'
+    """
+    parts = [p.strip() for p in content.split(',')]
+    for part in parts:
+        # Price: "249 000 €" or "376 341 €" (may use non-breaking space \xa0)
+        price_match = re.search(r'([\d\s\xa0]+)\s*€', part)
+        if price_match and 'price' not in data:
+            try:
+                price_str = re.sub(r'\s+', '', price_match.group(1))
+                data['price'] = float(price_str)
+            except ValueError:
+                pass
+        # Area: "72.3 m²" or "60 m²"
+        area_match = re.search(r'([\d.,]+)\s*m[²2]', part)
+        if area_match and 'floor_size' not in data:
+            try:
+                data['floor_size'] = float(area_match.group(1).replace(',', '.'))
+            except ValueError:
+                pass
+        # Stav: check if part matches known values (e.g., "Novostavba", "Pôvodný stav")
+        part_clean = part.strip()
+        if part_clean in VALID_STAV and 'stav' not in data:
+            data['stav'] = part_clean
+    # Location — typically the 3rd comma-separated part (after type and transaction)
+    if len(parts) >= 3 and 'location_raw' not in data:
+        loc_part = parts[2].strip()
+        if loc_part and not re.search(r'[€m²]|\d{3,}', loc_part):
+            data['location_raw'] = loc_part
 
 
 # --- Category detection ---
@@ -246,16 +305,36 @@ def parse_detail_html(html: str) -> dict:
 def detect_category(parsed: dict, url: str):
     """Detect if listing is byty or domy. Returns 'byty'/'domy' or None."""
     url_lower = url.lower()
+
+    # 1. URL path segments (e.g., /byty/predaj/, /domy/...)
     if '/byty/' in url_lower or '/byt/' in url_lower:
         return 'byty'
     if '/domy/' in url_lower or '/dom/' in url_lower or '/chaty/' in url_lower:
         return 'domy'
 
+    # 2. page-info / breadcrumb category
     cat = parsed.get('category_raw', '').lower()
     if 'byt' in cat:
         return 'byty'
     if 'dom' in cat or 'chat' in cat or 'chalup' in cat:
         return 'domy'
+
+    # 3. URL slug keywords (for /detail/{id}/{slug} format on nehnutelnosti.sk)
+    slug = url_lower.rstrip('/').split('/')[-1]
+    slug_words = set(slug.split('-'))
+    if 'byt' in slug_words:
+        return 'byty'
+    if 'dom' in slug_words or 'chata' in slug_words or 'chalupa' in slug_words:
+        return 'domy'
+
+    # 4. Meta description (first comma part often has "2 izbový byt" etc.)
+    meta = parsed.get('meta_description', '').lower()
+    if meta:
+        first_part = meta.split(',')[0]
+        if 'byt' in first_part:
+            return 'byty'
+        if 'dom' in first_part or 'chat' in first_part:
+            return 'domy'
 
     return None
 

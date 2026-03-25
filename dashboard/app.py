@@ -722,6 +722,7 @@ if st.session_state.scraper_result:
         st.warning(_w)
     if _sr.get('confidence') == 'low':
         st.warning("Lokalita bola priradená len približne. Odporúčame overiť výber.")
+    st.caption("Formulár bol vyplnený údajmi z inzerátu. Skontrolujte hodnoty a kliknite **Odhadnúť cenu**.")
 
 # --- Prefill dict (from scraper or empty) ---
 _pf = {}
