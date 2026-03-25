@@ -847,6 +847,7 @@ location = st_searchbox(
     placeholder="Hľadať obec... (napr. Cadca, Zilina)",
     label="Obec / mestská časť",
     default=_loc_default,
+    default_searchterm=_loc_default if _pf.get('obec_cast') else "",
     default_options=all_locations[:20],
     key=f"loc_searchbox_{category}_{_sb_ver}",
 )
