@@ -425,19 +425,6 @@ st.markdown("""
     --warning: #ff9500;
 }
 
-/* ---- Dark mode variable architecture (toggle deferred) ---- */
-[data-theme="dark"] {
-    --bg-primary: linear-gradient(135deg, #000, #1c1c1e);
-    --surface-glass: rgba(28, 28, 30, 0.72);
-    --surface-border: rgba(255, 255, 255, 0.08);
-    --text-primary: #f5f5f7;
-    --text-secondary: #86868b;
-    --accent: #0a84ff;
-    --positive: #30d158;
-    --negative: #ff453a;
-    --warning: #ff9f0a;
-}
-
 /* ---- Global ---- */
 .stApp {
     background: var(--bg-primary) !important;
@@ -618,7 +605,7 @@ div[data-testid="stRadio"] > label { display: none !important; }
 
 # --- Header ---
 st.title("Predikcia Ceny Nehnuteľností")
-st.markdown('<p class="subtitle">Ensemble ML model · 10 000+ nehnuteľností</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Odhad na základe 13 000+ reálnych inzerátov</p>', unsafe_allow_html=True)
 
 # --- Session State ---
 if 'prediction_done' not in st.session_state:
@@ -732,9 +719,10 @@ if st.session_state.scraper_result:
 # --- Location Search (outside form — needs dynamic filtering) ---
 all_locations = sorted(mappings['locations'].keys())
 _sb_ver = st.session_state.get('_sb_ver', 0)
-_loc_default = _pf.get('obec_cast', all_locations[0] if all_locations else None)
+_loc_fallback = next((l for l in all_locations if l.startswith('Bratislava')), all_locations[0] if all_locations else None)
+_loc_default = _pf.get('obec_cast', _loc_fallback)
 if _loc_default and _loc_default not in mappings['locations']:
-    _loc_default = all_locations[0] if all_locations else None
+    _loc_default = _loc_fallback
 
 def search_location(query: str) -> list[str]:
     if not query.strip():
@@ -751,7 +739,7 @@ location = st_searchbox(
     key=f"loc_searchbox_{category}_{_sb_ver}",
 )
 if location is None or location not in mappings['locations']:
-    location = all_locations[0] if all_locations else ""
+    location = _loc_fallback or ""
 
 # Determine active model region and features for form rendering
 _form_region = get_region(category, location)
@@ -869,10 +857,10 @@ with st.form(f"input_form_{_form_ver}"):
                 vybavenie_cols = st.columns(2)
                 with vybavenie_cols[0]:
                     for _akey, _alabel in _visible_amenities[:_mid]:
-                        _amenity_values[_akey] = st.toggle(_alabel, value=False, key=f"am_{_akey}")
+                        _amenity_values[_akey] = st.toggle(_alabel, value=bool(_pf.get(_akey, False)), key=f"am_{_akey}")
                 with vybavenie_cols[1]:
                     for _akey, _alabel in _visible_amenities[_mid:]:
-                        _amenity_values[_akey] = st.toggle(_alabel, value=False, key=f"am_{_akey}")
+                        _amenity_values[_akey] = st.toggle(_alabel, value=bool(_pf.get(_akey, False)), key=f"am_{_akey}")
             has_balcony = _amenity_values.get('has_balcony', False)
             has_loggia = _amenity_values.get('has_loggia', False)
             has_cellar = _amenity_values.get('has_cellar', False)
@@ -896,6 +884,8 @@ if submitted:
     if category == 'byty' and current_floor > total_floors:
         st.warning("Poschodie nemôže byť vyššie ako počet poschodí v budove.")
         _valid = False
+    if category == 'domy' and land_area == 0:
+        st.warning("Plocha pozemku nie je zadaná. Odhad môže byť nepresný.")
     if category == 'domy' and built_up_area > land_area > 0:
         st.warning("Zastavaná plocha nemôže byť väčšia ako plocha pozemku.")
         _valid = False
@@ -1013,7 +1003,7 @@ if st.session_state.prediction_done and st.session_state.input_data:
             agreement_desc = "Mierne rozdiely medzi modelmi"
         else:
             dot_html, agreement_label = '<span class="dot-red">●</span>', "Nízka"
-            agreement_desc = "Veľké rozdiely — odhad menej istý"
+            agreement_desc = "Veľké rozdiely — orientujte sa podľa cenového rozpätia"
         st.markdown(f"""<div class="stat-card">
             <div class="stat-label">Spoľahlivosť odhadu</div>
             <div class="stat-value">{dot_html} {agreement_label}</div>
@@ -1055,9 +1045,9 @@ if st.session_state.prediction_done and st.session_state.input_data:
                 top_factors = get_plain_language_shap(shap_values[0], final_price, X_input=X_input, top_n=5)
                 for label, eur, fmt_val in top_factors:
                     direction = "zvyšuje" if eur > 0 else "znižuje"
-                    icon = "\U0001f53a" if eur > 0 else "\U0001f53b"
+                    _arrow = '<span style="color:#34c759;font-size:0.9rem">▲</span>' if eur > 0 else '<span style="color:#ff3b30;font-size:0.9rem">▼</span>'
                     val_str = f" ({fmt_val})" if fmt_val else ""
-                    st.markdown(f"{icon} **{label}**{val_str} {direction} cenu o **{abs(eur):,.0f} €**")
+                    st.markdown(f"{_arrow} **{label}**{val_str} {direction} cenu o **{abs(eur):,.0f} €**", unsafe_allow_html=True)
                 st.caption("Na základe XGBoost SHAP analýzy. Hodnoty sú aproximácie vplyvu na finálnu cenu.")
 
     # ========================================================
@@ -1077,6 +1067,7 @@ if st.session_state.prediction_done and st.session_state.input_data:
             price_renovated, _ = predict_ensemble(X_renovated, models)
             increase = price_renovated - final_price
             st.metric("Potenciálna cena po rekonštrukcii", f"{price_renovated:,.0f} €", delta=f"+{increase:,.0f} €")
+            st.caption("Odhad nezahŕňa náklady na rekonštrukciu.")
         else:
             st.info("Nehnuteľnosť je už v top stave (Novostavba / Rekonštrukcia).")
 
@@ -1119,9 +1110,10 @@ if st.session_state.prediction_done and st.session_state.input_data:
                 price_loc, _ = predict_ensemble(X_loc, loc_models)
                 loc_stats_comp = mappings['locations'].get(loc, {'location_score_m2': 0, 'lat': 48.15, 'lon': 17.11})
                 shap_diff_top = []
+                _cross_region = loc_region != region
                 loc_tag = f'byty_{loc_region}' if category == 'byty' else 'domy'
                 # SHAP diff only works when both locations use the same model (same region)
-                if shap_values is not None and loc_region == region:
+                if shap_values is not None and not _cross_region:
                     shap_loc = get_shap_explainer(loc_models['xgb'], f'xgb_{loc_tag}')(X_loc)
                     shap_diff_top = get_shap_diff_top(shap_values[0], shap_loc[0], price_loc)
                 comparison_results.append({
@@ -1130,6 +1122,7 @@ if st.session_state.prediction_done and st.session_state.input_data:
                     'loc_avg_m2': loc_stats_comp['location_score_m2'],
                     'lat': loc_stats_comp['lat'], 'lon': loc_stats_comp['lon'],
                     'shap_diff': shap_diff_top,
+                    'cross_region': _cross_region,
                 })
 
             n_cols = 1 + len(comparison_results)
@@ -1147,8 +1140,10 @@ if st.session_state.prediction_done and st.session_state.input_data:
                     st.caption(f"{comp['price_m2']:,.0f} €/m²")
                     if comp['shap_diff']:
                         for lbl, eur_d in comp['shap_diff']:
-                            icon = "\U0001f53a" if eur_d > 0 else "\U0001f53b"
-                            st.markdown(f"{icon} {lbl}: **{eur_d:+,.0f} €**")
+                            _arrow = '<span style="color:#34c759">▲</span>' if eur_d > 0 else '<span style="color:#ff3b30">▼</span>'
+                            st.markdown(f"{_arrow} {lbl}: **{eur_d:+,.0f} €**", unsafe_allow_html=True)
+                    elif comp.get('cross_region'):
+                        st.caption("Iný región — porovnanie faktorov nie je dostupné")
 
             # Multi-pin map
             loc_orig = mappings['locations'].get(input_data['obec_cast'], {'lat': 48.15, 'lon': 17.11})
@@ -1200,7 +1195,10 @@ if st.session_state.prediction_done and st.session_state.input_data:
         # Translate feature names to Slovak for display
         detail_shap_row = detail_shap[0]
         detail_shap_row.feature_names = [translate_feature_name(f) for f in detail_shap_row.feature_names]
-        shap.plots.waterfall(detail_shap_row, show=False, max_display=10)
+        try:
+            shap.plots.waterfall(detail_shap_row, show=False, max_display=10)
+        except IndexError:
+            pass  # SHAP tick-label coloring bug — plot is already rendered
         fig = plt.gcf()
         fig.set_size_inches(10, 5)
         st.pyplot(fig, use_container_width=False)

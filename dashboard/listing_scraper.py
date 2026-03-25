@@ -41,6 +41,34 @@ def _strip_diacritics(text: str) -> str:
     return ''.join(c for c in nfkd if not unicodedata.category(c).startswith('M'))
 
 
+# Slovak room count words → number
+_ROOM_WORDS = {
+    'garson': 1, 'garzon': 1,
+    'jednoizbov': 1, '1-izbov': 1,
+    'dvojizbov': 2, '2-izbov': 2,
+    'trojizbov': 3, '3-izbov': 3,
+    'stvorizbov': 4, '4-izbov': 4,
+    'patizbov': 5, '5-izbov': 5,
+    'sestizbov': 6, '6-izbov': 6,
+}
+
+
+def _extract_room_count(text: str):
+    """Extract room count from Slovak text (title, slug, meta description).
+    E.g., 'dvojizbový byt' → 2, '3-izbový' → 3, 'garsónka' → 1.
+    Returns int or None.
+    """
+    text_lower = _strip_diacritics(text.lower())
+    for pattern, count in _ROOM_WORDS.items():
+        if pattern in text_lower:
+            return count
+    # Generic pattern: N-izb or N izb
+    m = re.search(r'(\d+)\s*-?\s*izb', text_lower)
+    if m:
+        return int(m.group(1))
+    return None
+
+
 # --- Fetching ---
 
 def detect_portal(url: str):
@@ -177,12 +205,245 @@ def _extract_jsonld(jd, data, _depth=0):
                 _extract_jsonld(inner, data, _depth + 1)
 
 
+def _extract_json_value(text: str, start: int) -> str:
+    """Extract a balanced JSON value (object or array) starting at `start`.
+    Returns the substring or empty string if no balanced structure found."""
+    if start >= len(text):
+        return ''
+    opener = text[start]
+    if opener == '{':
+        closer = '}'
+    elif opener == '[':
+        closer = ']'
+    else:
+        return ''
+    depth = 0
+    in_string = False
+    escape_next = False
+    for i in range(start, len(text)):
+        c = text[i]
+        if escape_next:
+            escape_next = False
+            continue
+        if c == '\\' and in_string:
+            escape_next = True
+            continue
+        if c == '"' and not escape_next:
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if c == opener:
+            depth += 1
+        elif c == closer:
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return ''
+
+
+def _extract_rsc_payload(html: str, data: dict):
+    """Extract listing data from Next.js RSC payload (nehnutelnosti.sk).
+
+    nehnutelnosti.sk uses React Server Components. The full advertisement data
+    is embedded in self.__next_f.push([1, "..."]) script chunks. The payload
+    uses RSC wire format — a mix of component references and inline JSON props.
+    We find the "parameters" object within these chunks and extract key fields.
+    """
+    # Find all self.__next_f.push chunks
+    # The regex must handle JS-escaped quotes (\") inside the string literal.
+    # (?:[^"\\]|\\.)* matches non-quote/non-backslash chars OR escaped chars.
+    chunks = re.findall(r'self\.__next_f\.push\(\[1,\s*"((?:[^"\\]|\\.)*)"\]', html, re.DOTALL)
+    if not chunks:
+        return
+
+    # Unescape JS string escapes
+    def _unescape_js(s):
+        s = s.replace('\\"', '"')
+        s = s.replace('\\\\', '\\')
+        s = s.replace('\\n', '\n')
+        s = s.replace('\\t', '\t')
+        return s
+
+    for raw_chunk in chunks:
+        chunk = _unescape_js(raw_chunk)
+
+        # --- Extract "parameters" object ---
+        # In the RSC payload, the ad data appears as: ..."parameters":{...}...
+        # We find this key and extract the balanced JSON object after it.
+        params_match = re.search(r'"parameters"\s*:\s*\{', chunk)
+        if not params_match:
+            continue
+
+        # Check this is the advertisement parameters (has relevant fields nearby)
+        context_after = chunk[params_match.start():params_match.start() + 2000]
+        if not any(kw in context_after for kw in (
+            '"construction"', '"area"', '"realEstateState"',
+            '"floor"', '"transaction"', '"hasElevator"',
+        )):
+            continue
+
+        # Extract the parameters JSON object
+        obj_start = params_match.end() - 1  # point at the opening {
+        params_str = _extract_json_value(chunk, obj_start)
+        if not params_str:
+            continue
+
+        try:
+            params = json.loads(params_str, strict=False)
+        except json.JSONDecodeError:
+            continue
+
+        if not isinstance(params, dict):
+            continue
+
+        # --- Extract from parameters ---
+        if 'construction_raw' not in data:
+            val = params.get('construction')
+            if val:
+                data['construction_raw'] = str(val)
+
+        if 'current_floor' not in data:
+            fl = params.get('floor')
+            if fl is not None:
+                try:
+                    data['current_floor'] = int(fl)
+                except (ValueError, TypeError):
+                    pass
+
+        if 'total_floors' not in data:
+            nf = params.get('numberOfFloors')
+            if nf is not None:
+                try:
+                    data['total_floors'] = int(nf)
+                except (ValueError, TypeError):
+                    pass
+
+        if 'floor_size' not in data:
+            area = params.get('area')
+            if area is not None:
+                try:
+                    data['floor_size'] = float(str(area).replace(',', '.'))
+                except (ValueError, TypeError):
+                    pass
+
+        if 'stav' not in data:
+            stav = params.get('realEstateState')
+            if stav:
+                data['stav'] = str(stav)
+
+        if 'year_of_construction' not in data:
+            yoc = params.get('yearOfConstruction')
+            if yoc is not None:
+                try:
+                    data['year_of_construction'] = int(yoc)
+                except (ValueError, TypeError):
+                    pass
+
+        # Price — nested under parameters.price in RSC format
+        if 'price' not in data:
+            price_obj = params.get('price')
+            if isinstance(price_obj, dict):
+                pn = price_obj.get('priceNum')
+                if pn is not None:
+                    try:
+                        data['price'] = float(pn)
+                    except (ValueError, TypeError):
+                        pass
+                if 'price' not in data:
+                    pv = price_obj.get('priceValue')
+                    if pv is not None:
+                        try:
+                            data['price'] = float(str(pv).replace(' ', ''))
+                        except (ValueError, TypeError):
+                            pass
+
+        # Attributes array: heating, vlastníctvo, room count, etc.
+        attrs = params.get('attributes')
+        if isinstance(attrs, list):
+            for attr in attrs:
+                if not isinstance(attr, dict):
+                    continue
+                label = str(attr.get('label', ''))
+                value = str(attr.get('value', ''))
+                if not label or not value:
+                    continue
+
+                if 'Vlastníctvo' in label and 'vlastnictvo' not in data:
+                    data['vlastnictvo'] = value
+                elif 'ykurovanie' in label and 'heating_raw' not in data:
+                    data['heating_raw'] = value
+                elif 'izieb' in label.lower() and 'room_count' not in data:
+                    try:
+                        data['room_count'] = int(re.sub(r'[^\d]', '', value))
+                    except ValueError:
+                        pass
+                elif 'pivn' in label.lower() and 'has_cellar_rsc' not in data:
+                    data['has_cellar_rsc'] = True
+                elif 'Vybavenie' in label or 'ybavenie' in label:
+                    data.setdefault('vybavenie_texts', [])
+                    data['vybavenie_texts'].append(value)
+
+        # hasElevator boolean — add after attributes to avoid duplicates
+        if params.get('hasElevator') is True:
+            data.setdefault('vybavenie_texts', [])
+            if not any('výťah' in t.lower() for t in data['vybavenie_texts']):
+                data['vybavenie_texts'].append('Výťah')
+
+        # --- Extract location / GPS from the same chunk ---
+        # The property location object has "city", "district", "point" fields.
+        # We find the location block that contains "city" (to avoid matching
+        # the advertiser's location which only has "parts").
+        for loc_match in re.finditer(r'"location"\s*:\s*\{', chunk):
+            loc_start = loc_match.end() - 1
+            loc_str = _extract_json_value(chunk, loc_start)
+            if not loc_str or '"city"' not in loc_str:
+                continue
+            try:
+                loc_obj = json.loads(loc_str, strict=False)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(loc_obj, dict) or 'city' not in loc_obj:
+                continue
+
+            # GPS coordinates
+            point = loc_obj.get('point')
+            if isinstance(point, dict):
+                if 'lat' not in data and 'latitude' in point:
+                    data['lat'] = str(point['latitude'])
+                if 'lon' not in data and 'longitude' in point:
+                    data['lon'] = str(point['longitude'])
+
+            # City name (most useful for matching)
+            if 'location_raw' not in data:
+                city = loc_obj.get('city')
+                if city:
+                    data['location_raw'] = str(city)
+            break
+
+        # Category from the "category" field near the advertisement
+        if 'category_raw' not in data:
+            cat_match = re.search(r'"category"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"', chunk)
+            if cat_match:
+                cat_name = cat_match.group(1)
+                if 'byt' in cat_name.lower():
+                    data['category_raw'] = 'byty'
+                elif 'dom' in cat_name.lower() or 'chat' in cat_name.lower():
+                    data['category_raw'] = 'domy'
+
+        # Found the main parameters — done with RSC extraction
+        break
+
+
 def parse_detail_html(html: str) -> dict:
     """Parse listing detail page HTML. Returns dict with extracted values."""
     soup = BeautifulSoup(html, 'html.parser')
     data = {}
 
-    # 1. JSON-LD — primary structured data source
+    # 0. Next.js RSC payload — nehnutelnosti.sk embeds full data in self.__next_f.push chunks
+    _extract_rsc_payload(html, data)
+
+    # 1. JSON-LD — primary structured data source (works on reality.sk, empty on nehnutelnosti.sk)
     for script in soup.find_all('script', type='application/ld+json'):
         try:
             if not script.string:
@@ -264,6 +525,14 @@ def parse_detail_html(html: str) -> dict:
                 if '/domy' in href:
                     data['category_raw'] = 'domy'
                     break
+
+    # 8. Room count from title / meta description (fallback for SPA pages)
+    if 'room_count' not in data:
+        for text_src in [data.get('title', ''), data.get('meta_description', '')]:
+            rc = _extract_room_count(text_src)
+            if rc:
+                data['room_count'] = rc
+                break
 
     return data
 
@@ -484,6 +753,11 @@ def fetch_listing(url: str) -> dict:
     if err:
         return {'success': False, 'error': err}
 
+    # Detect removed listings (nehnutelnosti.sk Next.js redirect)
+    if 'NEXT_REDIRECT' in html and '/vysledky' in html:
+        return {'success': False,
+                'error': 'Inzerát bol odstránený alebo nie je dostupný.'}
+
     # Parse
     parsed = parse_detail_html(html)
     if not parsed:
@@ -514,6 +788,13 @@ def fetch_listing(url: str) -> dict:
     if not floor_size or floor_size < 8:
         return {'success': False,
                 'error': 'Nepodarilo sa nájsť plochu nehnuteľnosti v inzeráte.'}
+
+    # Try to extract room count from URL slug as last resort
+    if 'room_count' not in parsed:
+        slug = url.rstrip('/').split('/')[-1]
+        rc = _extract_room_count(slug.replace('-', ' '))
+        if rc:
+            parsed['room_count'] = rc
 
     return {
         'success': True,
@@ -611,7 +892,7 @@ def build_model_input(parsed: dict, category: str, mappings: dict) -> tuple:
         'has_lift': int(amenities.get('has_lift', False)),
         'has_balcony': int(amenities.get('has_balcony', False)),
         'has_loggia': int(amenities.get('has_loggia', False)),
-        'has_cellar': int(amenities.get('has_cellar', False)),
+        'has_cellar': int(amenities.get('has_cellar', False) or parsed.get('has_cellar_rsc', False)),
         'has_garage': int(amenities.get('has_garage', False)),
         'has_parking': int(amenities.get('has_parking', False)),
         'has_terrace': int(amenities.get('has_terrace', False)),
